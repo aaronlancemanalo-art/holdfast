@@ -1,0 +1,48 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.aaron.holdfast'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.aaron.holdfast'
+        minSdk 26
+        targetSdk 34
+        // Every GitHub build gets a higher number, so updates install over the old one.
+        versionCode((System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger())
+        versionName "1.0.${System.getenv('GITHUB_RUN_NUMBER') ?: '0'}"
+    }
+
+    // Same key every build, otherwise Android refuses to install updates over the
+    // old version. Keep the repo PRIVATE: anyone with this key can sign as Holdfast.
+    signingConfigs {
+        release {
+            storeFile file('holdfast.keystore')
+            storePassword 'holdfast-local'
+            keyAlias 'holdfast'
+            keyPassword 'holdfast-local'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+        debug {
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

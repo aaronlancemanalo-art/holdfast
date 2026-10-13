@@ -1,0 +1,46 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Restore signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::Missing the KEYSTORE_B64 secret (Settings > Secrets and variables > Actions)"
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > app/holdfast.keystore
+
+      - name: Build signed APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk holdfast.apk
+          echo "${{ github.run_number }}" > version.txt
+
+      - name: Publish release (the app checks this for updates)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ github.run_number }}" holdfast.apk version.txt \
+            --title "Build ${{ github.run_number }}" \
+            --notes "Automatic build from main." \
+            --latest
