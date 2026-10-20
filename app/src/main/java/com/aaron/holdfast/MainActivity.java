@@ -2,7 +2,14 @@ package com.aaron.holdfast;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.DownloadManager;
 import android.app.admin.DevicePolicyManager;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
+import android.database.Cursor;
+import android.os.Environment;
+import android.widget.Toast;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
@@ -41,13 +48,23 @@ public class MainActivity extends Activity {
             "https://github.com/" + REPO + "/releases/latest/download/version.txt";
     private static final String APK_URL =
             "https://github.com/" + REPO + "/releases/latest/download/holdfast.apk";
-    private static final String SAMSUNG_BROWSER = "com.sec.android.app.sbrowser";
+    private static final String APK_MIME = "application/vnd.android.package-archive";
 
     private Rules rules;
     private LinearLayout root;
     private int remoteVersion = -1;
     private String updateError;
     private long lastCheck = 0;
+    private boolean downloading = false;
+
+    /** Fires when Android's downloader finishes the update APK. */
+    private final BroadcastReceiver downloadDone = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context c, Intent i) {
+            long id = i.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+            if (id == savedDownloadId()) installIfReady();
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,6 +77,18 @@ public class MainActivity extends Activity {
         root.setPadding(pad, pad, pad, pad);
         sv.addView(root);
         setContentView(sv);
+        IntentFilter f = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(downloadDone, f, Context.RECEIVER_EXPORTED);
+        else registerReceiver(downloadDone, f);
+    }
+
+    @Override
+    protected void onDestroy() {
+        try {
+            unregisterReceiver(downloadDone);
+        } catch (Exception ignored) {
+        }
+        super.onDestroy();
     }
 
     @Override
@@ -68,6 +97,7 @@ public class MainActivity extends Activity {
         rules.tick();
         render();
         checkForUpdate(false);
+        installIfReady();
     }
 
     private void render() {
@@ -190,8 +220,12 @@ public class MainActivity extends Activity {
         long installed = installedVersion();
         if (remoteVersion > installed) {
             root.addView(text("Build " + remoteVersion + " is ready (you have " + installed + ").", 15));
-            root.addView(button("Download update", v -> openDownload()));
-            TextView hint = text("Downloads in Samsung Internet. Open the file and tap Update. "
+            if (downloading) {
+                root.addView(text("Downloading... the install screen opens by itself.", 14));
+            } else {
+                root.addView(button("Download update", v -> startDownload()));
+            }
+            TextView hint = text("Holdfast downloads it itself, no browser needed. Tap Update when asked. "
                     + "Your rules are kept.", 12);
             hint.setAlpha(0.6f);
             root.addView(hint);
@@ -299,19 +333,72 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    /** Opens the APK link in Samsung Internet (Chrome is blocked), else the default browser. */
-    private void openDownload() {
-        Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(APK_URL));
-        try {
-            getPackageManager().getPackageInfo(SAMSUNG_BROWSER, 0);
-            i.setPackage(SAMSUNG_BROWSER);
-        } catch (PackageManager.NameNotFoundException ignored) {
+    /** Downloads the update with Android's own downloader, so no browser is needed. */
+    private void startDownload() {
+        if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+            rules.openInstallPermissionWindow();
+            Toast.makeText(this, "Allow Holdfast to install updates, then come back and tap Download again.",
+                    Toast.LENGTH_LONG).show();
+            startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:" + getPackageName())));
+            return;
         }
+        DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+        DownloadManager.Request r = new DownloadManager.Request(Uri.parse(APK_URL))
+                .setTitle("Holdfast update")
+                .setMimeType(APK_MIME)
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+                .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS,
+                        "holdfast-" + remoteVersion + "-" + System.currentTimeMillis() + ".apk");
+        long id = dm.enqueue(r);
+        getPreferences(MODE_PRIVATE).edit().putLong("downloadId", id).apply();
+        downloading = true;
+        render();
+    }
+
+    private long savedDownloadId() {
+        return getPreferences(MODE_PRIVATE).getLong("downloadId", -1);
+    }
+
+    /** If the last update download finished, open the installer and forget the download. */
+    private void installIfReady() {
+        long id = savedDownloadId();
+        if (id < 0) return;
+        DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+        int status = -1;
+        Cursor c = dm.query(new DownloadManager.Query().setFilterById(id));
+        if (c != null) {
+            if (c.moveToFirst()) {
+                status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
+            }
+            c.close();
+        }
+        if (status == DownloadManager.STATUS_RUNNING || status == DownloadManager.STATUS_PENDING
+                || status == DownloadManager.STATUS_PAUSED) {
+            downloading = true;
+            return;
+        }
+        getPreferences(MODE_PRIVATE).edit().remove("downloadId").apply();
+        downloading = false;
+        if (status != DownloadManager.STATUS_SUCCESSFUL) {
+            updateError = "download failed, try again";
+            render();
+            return;
+        }
+        Uri uri = dm.getUriForDownloadedFile(id);
+        if (uri == null) {
+            updateError = "downloaded file missing";
+            render();
+            return;
+        }
+        Intent install = new Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, APK_MIME)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
-            startActivity(i);
+            startActivity(install);
         } catch (Exception e) {
-            i.setPackage(null);
-            startActivity(i);
+            updateError = "couldn't open installer";
+            render();
         }
     }
 

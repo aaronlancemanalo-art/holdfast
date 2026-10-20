@@ -230,6 +230,18 @@ public final class Rules {
         return SystemClock.elapsedRealtime() < p.getLong("setupUntil", 0);
     }
 
+    /**
+     * The "Install unknown apps" page for Holdfast shows its name, so the guard would block it.
+     * This short window lets only that page through (the service also checks the page text).
+     */
+    public void openInstallPermissionWindow() {
+        p.edit().putLong("installUntil", SystemClock.elapsedRealtime() + SETUP_WINDOW_MS).apply();
+    }
+
+    public boolean inInstallPermissionWindow() {
+        return SystemClock.elapsedRealtime() < p.getLong("installUntil", 0);
+    }
+
     // ---------- stats ----------
 
     public void countBlock() {

@@ -134,7 +134,10 @@ public class BlockerService extends AccessibilityService {
 
         // 3. Tamper guard
         if (rules.isGuardOn() && !setupAllowed()) {
-            if (isSettings && treeContains(root, APP_NAME)) {
+            boolean installPermissionPage = rules.inInstallPermissionWindow()
+                    && (treeContains(root, "unknown apps") || treeContains(root, "this source"))
+                    && !treeContains(root, "accessibility");
+            if (isSettings && !installPermissionPage && treeContains(root, APP_NAME)) {
                 block("Holdfast's settings are protected. Turning protection off takes 24 hours.");
                 return;
             }

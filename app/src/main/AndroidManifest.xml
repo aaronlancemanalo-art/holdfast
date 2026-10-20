@@ -3,6 +3,8 @@
 
     <!-- Only used to check GitHub for a newer build -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Lets Holdfast install its own updates without a browser -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Lets the "Block an app" picker see installed apps on Android 11+ -->
     <queries>
