@@ -87,9 +87,17 @@ public class MainActivity extends Activity {
         // ----- setup status -----
         header("Setup");
         boolean a11y = isAccessibilityOn();
+        boolean running = BlockerService.instance != null;
         boolean admin = isAdminOn();
-        if (a11y) {
-            root.addView(text("Blocker: ON", 16));
+        if (a11y && running) {
+            root.addView(text("Blocker: ON and running", 16));
+        } else if (a11y) {
+            TextView warn = text("Blocker: switched on but NOT running. Nothing is being blocked. "
+                    + "Turn Holdfast off and on again in Accessibility, and set its battery to Unrestricted.", 16);
+            warn.setTextColor(0xFFFF6B6B);
+            root.addView(warn);
+            root.addView(button("Open Accessibility settings",
+                    v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))));
         } else {
             root.addView(text("Blocker: OFF. Turn on Holdfast under Accessibility > Installed apps.", 16));
             root.addView(button("Open Accessibility settings",
@@ -100,6 +108,13 @@ public class MainActivity extends Activity {
         } else {
             root.addView(text("Uninstall protection: OFF", 16));
             root.addView(button("Activate uninstall protection", v -> activateAdmin()));
+        }
+
+        String err = rules.lastError();
+        if (err != null) {
+            TextView e = text("Last error: " + err, 12);
+            e.setAlpha(0.6f);
+            root.addView(e);
         }
 
         // ----- apps -----

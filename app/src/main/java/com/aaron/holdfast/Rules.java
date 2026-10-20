@@ -241,6 +241,20 @@ public final class Rules {
         return p.getInt("blocks_" + today(), 0);
     }
 
+    // ---------- diagnostics ----------
+
+    public void recordError(Throwable t) {
+        StackTraceElement top = t.getStackTrace().length > 0 ? t.getStackTrace()[0] : null;
+        String msg = t.getClass().getSimpleName()
+                + (top == null ? "" : " at " + top.getFileName() + ":" + top.getLineNumber())
+                + " (" + new SimpleDateFormat("d MMM HH:mm", Locale.ROOT).format(new Date()) + ")";
+        p.edit().putString("lastError", msg).apply();
+    }
+
+    public String lastError() {
+        return p.getString("lastError", null);
+    }
+
     // ---------- helpers ----------
 
     public static String normalizeDomain(String raw) {

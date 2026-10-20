@@ -67,6 +67,9 @@ public class BlockerService extends AccessibilityService {
         URL_BAR_IDS.put("com.google.android.googlequicksearchbox", new String[0]);
     }
 
+    /** Set while Android actually has the service connected. The app reads this to show real status. */
+    static volatile BlockerService instance;
+
     private Rules rules;
     private long lastBlockAt = 0;
     private final Map<String, Long> lastScan = new HashMap<>();
@@ -75,10 +78,32 @@ public class BlockerService extends AccessibilityService {
     protected void onServiceConnected() {
         super.onServiceConnected();
         rules = new Rules(this);
+        instance = this;
+    }
+
+    @Override
+    public boolean onUnbind(Intent intent) {
+        instance = null;
+        return super.onUnbind(intent);
+    }
+
+    @Override
+    public void onDestroy() {
+        instance = null;
+        super.onDestroy();
     }
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
+        // Never let one bad event crash the service: Android quietly disables a crashing service.
+        try {
+            handle(event);
+        } catch (Throwable t) {
+            if (rules != null) rules.recordError(t);
+        }
+    }
+
+    private void handle(AccessibilityEvent event) {
         if (rules == null || event == null || event.getPackageName() == null) return;
         String pkg = event.getPackageName().toString();
         if (pkg.equals(getPackageName())) return;
