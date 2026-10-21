@@ -182,10 +182,27 @@ public class MainActivity extends Activity {
         }));
         root.addView(addSite);
 
+        // ----- all browsers -----
+        header("All browsers");
+        if (rules.allBrowsersBlocked()) {
+            root.addView(text("ON: every browser is blocked, including ones you install later. "
+                    + "Other Reddit apps are blocked while reddit.com is.", 14));
+            if (!rules.isPending(Rules.TYPE_BROWSERS, "")) {
+                root.addView(button("Allow browsers (24h)",
+                        v -> confirmRemoval(Rules.TYPE_BROWSERS, "", "all browsers")));
+            }
+        } else {
+            root.addView(text("OFF: browsers are only blocked if listed above.", 14));
+            root.addView(button("Block all browsers now", v -> {
+                rules.blockAllBrowsers();
+                render();
+            }));
+        }
+
         // ----- guard -----
         header("Tamper protection");
         TextView g = text(rules.isGuardOn()
-                ? "ON: Holdfast's Settings pages and uninstall dialog are blocked."
+                ? "ON: Holdfast's Settings pages, its uninstall dialog, Developer options and Safe mode are blocked."
                 : "OFF: Holdfast can be disabled or uninstalled.", 14);
         root.addView(g);
         if (rules.isGuardOn()) {
@@ -207,6 +224,7 @@ public class MainActivity extends Activity {
         for (int i = 0; i < pending.size(); i++) {
             Rules.Pending p = pending.get(i);
             String what = Rules.TYPE_GUARD.equals(p.type) ? "Turn off tamper protection"
+                    : Rules.TYPE_BROWSERS.equals(p.type) ? "Allow browsers"
                     : "Unblock " + (Rules.TYPE_APP.equals(p.type) ? label(p.value) : p.value);
             final int idx = i;
             root.addView(row(what + "\nin " + duration(p.remainingMs), "Cancel", v -> {

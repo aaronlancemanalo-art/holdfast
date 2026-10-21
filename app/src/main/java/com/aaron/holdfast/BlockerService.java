@@ -6,6 +6,9 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.net.Uri;
+import android.os.Build;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -43,6 +46,11 @@ public class BlockerService extends AccessibilityService {
             "com.android.packageinstaller",
             "com.samsung.android.packageinstaller"));
 
+    /** Where the power menu (with its Safe mode option) lives. */
+    private static final Set<String> SYSTEM_UI_PKGS = new HashSet<>(Arrays.asList(
+            "com.android.systemui",
+            "com.samsung.android.globalactions"));
+
     /** Known URL-bar view ids per browser. Unknown browsers fall back to a generic scan. */
     private static final Map<String, String[]> URL_BAR_IDS = new HashMap<>();
 
@@ -70,7 +78,12 @@ public class BlockerService extends AccessibilityService {
     /** Set while Android actually has the service connected. The app reads this to show real status. */
     static volatile BlockerService instance;
 
+    private static final String OFFICIAL_REDDIT = "com.reddit.frontpage";
+
     private Rules rules;
+    private Set<String> browserPkgs = new HashSet<>();
+    private long browsersCheckedAt = 0;
+    private final Map<String, Boolean> redditClientCache = new HashMap<>();
     private long lastBlockAt = 0;
     private final Map<String, Long> lastScan = new HashMap<>();
 
@@ -116,6 +129,18 @@ public class BlockerService extends AccessibilityService {
             return;
         }
 
+        // 1b. Any browser, including ones installed after the rules were set
+        if (rules.allBrowsersBlocked() && browserPackages().contains(pkg)) {
+            block(appLabel(pkg) + " is blocked (all browsers are).");
+            return;
+        }
+
+        // 1c. Other Reddit apps, while reddit.com is blocked
+        if (rules.getSites().contains("reddit.com") && isRedditClient(pkg)) {
+            block(appLabel(pkg) + " is a Reddit app, and Reddit is blocked.");
+            return;
+        }
+
         // Content-change events fire constantly; scan each app at most every 400 ms.
         if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             long now = SystemClock.uptimeMillis();
@@ -127,16 +152,37 @@ public class BlockerService extends AccessibilityService {
         boolean isSettings = SETTINGS_PKGS.contains(pkg);
         boolean isInstaller = INSTALLER_PKGS.contains(pkg);
         boolean isBrowser = URL_BAR_IDS.containsKey(pkg) || pkg.contains("browser");
-        if (!isSettings && !isInstaller && !isBrowser) return;
+        boolean isSystemUi = SYSTEM_UI_PKGS.contains(pkg);
+        if (!isSettings && !isInstaller && !isBrowser && !isSystemUi) return;
 
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
+        if (isSystemUi) {
+            // Only look at system UI's own windows (the power menu), not whatever app is underneath.
+            CharSequence rootPkg = root.getPackageName();
+            if (rootPkg == null || !SYSTEM_UI_PKGS.contains(rootPkg.toString())) return;
+        }
 
         // 3. Tamper guard
         if (rules.isGuardOn() && !setupAllowed()) {
+            // The only Holdfast settings page let through: "Install unknown apps", for 90 s after
+            // tapping Download update. Pages with other controls (force stop etc.) stay blocked.
             boolean installPermissionPage = rules.inInstallPermissionWindow()
-                    && (treeContains(root, "unknown apps") || treeContains(root, "this source"))
+                    && treeContains(root, "this source")
+                    && !treeContains(root, "force stop")
+                    && !treeContains(root, "uninstall")
+                    && !treeContains(root, "clear data")
                     && !treeContains(root, "accessibility");
+            if (isSettings && (treeContains(root, "usb debugging")
+                    || treeContains(root, "wireless debugging"))) {
+                block("Developer options are protected while tamper protection is on.");
+                return;
+            }
+            if (isSystemUi && treeHasExactText(root, "safe mode")) {
+                performGlobalAction(GLOBAL_ACTION_BACK);
+                block("Safe mode is blocked while tamper protection is on.");
+                return;
+            }
             if (isSettings && !installPermissionPage && treeContains(root, APP_NAME)) {
                 block("Holdfast's settings are protected. Turning protection off takes 24 hours.");
                 return;
@@ -235,7 +281,58 @@ public class BlockerService extends AccessibilityService {
         return null;
     }
 
+    // ---------- app detection ----------
+
+    /** Every app that can open an ordinary web link is a browser. Re-checked every minute. */
+    private Set<String> browserPackages() {
+        long now = SystemClock.uptimeMillis();
+        if (browsersCheckedAt != 0 && now - browsersCheckedAt < 60_000) return browserPkgs;
+        browsersCheckedAt = now;
+        Set<String> found = new HashSet<>();
+        Intent web = new Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com/"))
+                .addCategory(Intent.CATEGORY_BROWSABLE);
+        int flags = Build.VERSION.SDK_INT >= 23 ? PackageManager.MATCH_ALL : 0;
+        List<ResolveInfo> list = getPackageManager().queryIntentActivities(web, flags);
+        for (ResolveInfo ri : list) {
+            if (ri.activityInfo != null) found.add(ri.activityInfo.packageName);
+        }
+        found.remove(getPackageName());
+        found.remove("android");
+        browserPkgs = found;
+        return found;
+    }
+
+    /** Third-party Reddit apps (Infinity, Boost, RedReader, Sync...), by package name or label. */
+    private boolean isRedditClient(String pkg) {
+        if (pkg.equals(OFFICIAL_REDDIT)) return false; // handled by the normal app list
+        Boolean cached = redditClientCache.get(pkg);
+        if (cached != null) return cached;
+        String id = pkg.toLowerCase(Locale.ROOT);
+        String label = appLabel(pkg).toLowerCase(Locale.ROOT);
+        boolean r = id.contains("reddit") || id.contains("redreader")
+                || label.contains("reddit") || label.contains("redreader");
+        redditClientCache.put(pkg, r);
+        return r;
+    }
+
     // ---------- helpers ----------
+
+    private static boolean treeHasExactText(AccessibilityNodeInfo root, String text) {
+        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
+        q.add(root);
+        int seen = 0;
+        while (!q.isEmpty() && seen < MAX_NODES) {
+            AccessibilityNodeInfo n = q.poll();
+            seen++;
+            if (n == null) continue;
+            CharSequence t = n.getText();
+            if (t != null && t.toString().trim().equalsIgnoreCase(text)) return true;
+            CharSequence d = n.getContentDescription();
+            if (d != null && d.toString().trim().equalsIgnoreCase(text)) return true;
+            for (int c = 0; c < n.getChildCount(); c++) q.add(n.getChild(c));
+        }
+        return false;
+    }
 
     private static boolean treeContains(AccessibilityNodeInfo root, String needle) {
         ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();

@@ -33,6 +33,7 @@ public final class Rules {
     public static final String TYPE_APP = "app";
     public static final String TYPE_SITE = "site";
     public static final String TYPE_GUARD = "guard";
+    public static final String TYPE_BROWSERS = "browsers";
 
     private static final String PREFS = "rules";
     private static final long TICK_MIN_MS = 5000;
@@ -71,6 +72,8 @@ public final class Rules {
                     .putBoolean("init", true)
                     .apply();
         }
+        // Added in build 7: he asked for every browser to be blocked, so this starts on.
+        if (!p.contains("allBrowsers")) p.edit().putBoolean("allBrowsers", true).apply();
     }
 
     // ---------- reads ----------
@@ -85,6 +88,11 @@ public final class Rules {
 
     public boolean isGuardOn() {
         return p.getBoolean("guard", true);
+    }
+
+    /** Blocks every installed browser, including ones installed later. */
+    public boolean allBrowsersBlocked() {
+        return p.getBoolean("allBrowsers", true);
     }
 
     public List<Pending> getPending() {
@@ -126,6 +134,11 @@ public final class Rules {
     public synchronized void guardOn() {
         p.edit().putBoolean("guard", true).apply();
         cancelPending(TYPE_GUARD, "");
+    }
+
+    public synchronized void blockAllBrowsers() {
+        p.edit().putBoolean("allBrowsers", true).apply();
+        cancelPending(TYPE_BROWSERS, "");
     }
 
     /** Cancelling a pending loosening is itself a tightening, so it is instant. */
@@ -185,6 +198,7 @@ public final class Rules {
         Set<String> apps = getApps();
         Set<String> sites = getSites();
         boolean guard = isGuardOn();
+        boolean browsers = allBrowsersBlocked();
         JSONArray keep = new JSONArray();
 
         for (int i = 0; i < arr.length(); i++) {
@@ -197,6 +211,7 @@ public final class Rules {
                 if (TYPE_APP.equals(type)) apps.remove(value);
                 else if (TYPE_SITE.equals(type)) sites.remove(value);
                 else if (TYPE_GUARD.equals(type)) guard = false;
+                else if (TYPE_BROWSERS.equals(type)) browsers = false;
             } else {
                 try {
                     o.put("rem", rem);
@@ -210,6 +225,7 @@ public final class Rules {
                 .putStringSet("apps", apps)
                 .putStringSet("sites", sites)
                 .putBoolean("guard", guard)
+                .putBoolean("allBrowsers", browsers)
                 .putString("pending", keep.toString());
         stampClock(e);
         e.apply();
