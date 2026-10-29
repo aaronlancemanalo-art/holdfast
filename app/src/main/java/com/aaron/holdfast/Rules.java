@@ -34,6 +34,7 @@ public final class Rules {
     public static final String TYPE_SITE = "site";
     public static final String TYPE_GUARD = "guard";
     public static final String TYPE_BROWSERS = "browsers";
+    public static final String TYPE_SIDELOAD = "sideload";
 
     private static final String PREFS = "rules";
     private static final long TICK_MIN_MS = 5000;
@@ -74,6 +75,8 @@ public final class Rules {
         }
         // Added in build 7: he asked for every browser to be blocked, so this starts on.
         if (!p.contains("allBrowsers")) p.edit().putBoolean("allBrowsers", true).apply();
+        // Added in build 8: installing apps from files (APKs) is blocked, except Holdfast's own updates.
+        if (!p.contains("noSideload")) p.edit().putBoolean("noSideload", true).apply();
     }
 
     // ---------- reads ----------
@@ -88,6 +91,19 @@ public final class Rules {
 
     public boolean isGuardOn() {
         return p.getBoolean("guard", true);
+    }
+
+    public boolean sideloadBlocked() {
+        return p.getBoolean("noSideload", true);
+    }
+
+    /** Holdfast opens this right before showing the installer for its own update. */
+    public void openSelfUpdateWindow() {
+        p.edit().putLong("selfUpdateUntil", SystemClock.elapsedRealtime() + 2 * 60 * 1000).apply();
+    }
+
+    public boolean inSelfUpdateWindow() {
+        return SystemClock.elapsedRealtime() < p.getLong("selfUpdateUntil", 0);
     }
 
     /** Blocks every installed browser, including ones installed later. */
@@ -134,6 +150,11 @@ public final class Rules {
     public synchronized void guardOn() {
         p.edit().putBoolean("guard", true).apply();
         cancelPending(TYPE_GUARD, "");
+    }
+
+    public synchronized void blockSideload() {
+        p.edit().putBoolean("noSideload", true).apply();
+        cancelPending(TYPE_SIDELOAD, "");
     }
 
     public synchronized void blockAllBrowsers() {
@@ -199,6 +220,7 @@ public final class Rules {
         Set<String> sites = getSites();
         boolean guard = isGuardOn();
         boolean browsers = allBrowsersBlocked();
+        boolean sideload = sideloadBlocked();
         JSONArray keep = new JSONArray();
 
         for (int i = 0; i < arr.length(); i++) {
@@ -212,6 +234,7 @@ public final class Rules {
                 else if (TYPE_SITE.equals(type)) sites.remove(value);
                 else if (TYPE_GUARD.equals(type)) guard = false;
                 else if (TYPE_BROWSERS.equals(type)) browsers = false;
+                else if (TYPE_SIDELOAD.equals(type)) sideload = false;
             } else {
                 try {
                     o.put("rem", rem);
@@ -226,6 +249,7 @@ public final class Rules {
                 .putStringSet("sites", sites)
                 .putBoolean("guard", guard)
                 .putBoolean("allBrowsers", browsers)
+                .putBoolean("noSideload", sideload)
                 .putString("pending", keep.toString());
         stampClock(e);
         e.apply();

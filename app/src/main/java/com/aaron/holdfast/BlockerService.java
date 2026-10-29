@@ -193,6 +193,18 @@ public class BlockerService extends AccessibilityService {
             }
         }
 
+        // 4. Installing apps from files. Uninstall dialogs (other apps) are left alone.
+        if (isInstaller && rules.sideloadBlocked()) {
+            boolean installScreen = (treeContains(root, "install") || treeContains(root, "update"))
+                    && !treeContains(root, "uninstall");
+            boolean ownUpdate = rules.inSelfUpdateWindow() && treeContains(root, APP_NAME);
+            if (installScreen && !ownUpdate) {
+                performGlobalAction(GLOBAL_ACTION_BACK);
+                block("Installing apps from files is blocked. Use the Play Store.");
+                return;
+            }
+        }
+
         // 2. Blocked sites
         if (isBrowser) {
             String hit = blockedSiteOnScreen(root, pkg);

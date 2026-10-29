@@ -199,6 +199,23 @@ public class MainActivity extends Activity {
             }));
         }
 
+        // ----- installs from files -----
+        header("Installs from files");
+        if (rules.sideloadBlocked()) {
+            root.addView(text("ON: installing apps from downloaded files (APKs) is blocked, from any app. "
+                    + "Play Store installs and Holdfast's own updates still work.", 14));
+            if (!rules.isPending(Rules.TYPE_SIDELOAD, "")) {
+                root.addView(button("Allow installs from files (24h)",
+                        v -> confirmRemoval(Rules.TYPE_SIDELOAD, "", "installs from files")));
+            }
+        } else {
+            root.addView(text("OFF: apps can be installed from files.", 14));
+            root.addView(button("Block installs from files now", v -> {
+                rules.blockSideload();
+                render();
+            }));
+        }
+
         // ----- guard -----
         header("Tamper protection");
         TextView g = text(rules.isGuardOn()
@@ -225,6 +242,7 @@ public class MainActivity extends Activity {
             Rules.Pending p = pending.get(i);
             String what = Rules.TYPE_GUARD.equals(p.type) ? "Turn off tamper protection"
                     : Rules.TYPE_BROWSERS.equals(p.type) ? "Allow browsers"
+                    : Rules.TYPE_SIDELOAD.equals(p.type) ? "Allow installs from files"
                     : "Unblock " + (Rules.TYPE_APP.equals(p.type) ? label(p.value) : p.value);
             final int idx = i;
             root.addView(row(what + "\nin " + duration(p.remainingMs), "Cancel", v -> {
@@ -409,6 +427,7 @@ public class MainActivity extends Activity {
             render();
             return;
         }
+        rules.openSelfUpdateWindow();
         Intent install = new Intent(Intent.ACTION_VIEW)
                 .setDataAndType(uri, APK_MIME)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
