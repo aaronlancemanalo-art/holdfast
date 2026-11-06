@@ -77,6 +77,9 @@ public final class Rules {
         if (!p.contains("allBrowsers")) p.edit().putBoolean("allBrowsers", true).apply();
         // Added in build 8: installing apps from files (APKs) is blocked, except Holdfast's own updates.
         if (!p.contains("noSideload")) p.edit().putBoolean("noSideload", true).apply();
+        // Apps installed after this moment must come from an app store. Older apps are left alone.
+        // For phones that already had the rule, use the day it shipped (build 8, 29 Oct 2026).
+        if (!p.contains("sideloadSince")) p.edit().putLong("sideloadSince", 1793271600000L).apply();
     }
 
     // ---------- reads ----------
@@ -152,7 +155,13 @@ public final class Rules {
         cancelPending(TYPE_GUARD, "");
     }
 
+    /** Wall-clock time from which new installs must come from an app store. */
+    public long sideloadSince() {
+        return p.getLong("sideloadSince", 1793271600000L);
+    }
+
     public synchronized void blockSideload() {
+        if (!sideloadBlocked()) p.edit().putLong("sideloadSince", System.currentTimeMillis()).apply();
         p.edit().putBoolean("noSideload", true).apply();
         cancelPending(TYPE_SIDELOAD, "");
     }

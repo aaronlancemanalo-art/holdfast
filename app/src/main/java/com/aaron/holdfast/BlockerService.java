@@ -5,6 +5,7 @@ import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.InstallSourceInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
@@ -100,6 +101,13 @@ public class BlockerService extends AccessibilityService {
     private Set<String> browserPkgs = new HashSet<>();
     private long browsersCheckedAt = 0;
     private final Map<String, Boolean> redditClientCache = new HashMap<>();
+    private final Map<String, Boolean> sideloadedCache = new HashMap<>();
+    private long sideloadedCacheAt = 0;
+
+    /** App stores whose installs are allowed. */
+    private static final Set<String> STORES = new HashSet<>(Arrays.asList(
+            "com.android.vending",               // Google Play Store
+            "com.sec.android.app.samsungapps")); // Galaxy Store
     private long lastBlockAt = 0;
     private final Map<String, Long> lastScan = new HashMap<>();
 
@@ -158,6 +166,12 @@ public class BlockerService extends AccessibilityService {
             return;
         }
 
+        // 1d. Apps installed from a file (whatever app delivered the file) can't be opened
+        if (rules.sideloadBlocked() && isNewSideloadedApp(pkg)) {
+            block(appLabel(pkg) + " was installed from a file, not an app store, so it's blocked.");
+            return;
+        }
+
         // Content-change events fire constantly; scan each app at most every 400 ms.
         if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             long now = SystemClock.uptimeMillis();
@@ -208,6 +222,13 @@ public class BlockerService extends AccessibilityService {
                 block("Uninstalling Holdfast is blocked. Turn protection off in the app first (24 hours).");
                 return;
             }
+        }
+
+        // 4a. No app can be given permission to install apps (only Holdfast, for its own updates)
+        if (isSettings && rules.sideloadBlocked() && treeContains(root, "this source")
+                && !(rules.inInstallPermissionWindow() && treeContains(root, APP_NAME))) {
+            block("Letting apps install other apps is blocked while installs from files are.");
+            return;
         }
 
         // 4. Installing apps from files. Uninstall dialogs (other apps) are left alone.
@@ -338,6 +359,42 @@ public class BlockerService extends AccessibilityService {
         found.remove("android");
         browserPkgs = found;
         return found;
+    }
+
+    /**
+     * True for a non-system app installed after the install rule started that did not come from
+     * an app store, however the file got onto the phone. Apps from before the cutoff are left alone.
+     */
+    private boolean isNewSideloadedApp(String pkg) {
+        long now = SystemClock.uptimeMillis();
+        if (now - sideloadedCacheAt > 60_000) {
+            sideloadedCache.clear();
+            sideloadedCacheAt = now;
+        }
+        Boolean cached = sideloadedCache.get(pkg);
+        if (cached != null) return cached;
+        boolean r = false;
+        try {
+            PackageManager pm = getPackageManager();
+            ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
+            boolean system = (ai.flags & (ApplicationInfo.FLAG_SYSTEM
+                    | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0;
+            long installed = pm.getPackageInfo(pkg, 0).firstInstallTime;
+            if (!system && installed > rules.sideloadSince()) {
+                String installer;
+                if (Build.VERSION.SDK_INT >= 30) {
+                    InstallSourceInfo src = pm.getInstallSourceInfo(pkg);
+                    installer = src.getInstallingPackageName();
+                } else {
+                    installer = pm.getInstallerPackageName(pkg);
+                }
+                r = installer == null || !STORES.contains(installer);
+            }
+        } catch (Exception e) {
+            r = false;
+        }
+        sideloadedCache.put(pkg, r);
+        return r;
     }
 
     /** Third-party Reddit apps (Infinity, Boost, RedReader, Sync...), by package name or label. */

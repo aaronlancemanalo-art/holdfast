@@ -204,6 +204,7 @@ public class MainActivity extends Activity {
         header("Installs from files");
         if (rules.sideloadBlocked()) {
             root.addView(text("ON: installing apps from downloaded files (APKs) is blocked, from any app. "
+                    + "Any new app that didn't come from the Play Store or Galaxy Store won't open. "
                     + "Play Store installs and Holdfast's own updates still work.", 14));
             if (!rules.isPending(Rules.TYPE_SIDELOAD, "")) {
                 root.addView(button("Allow installs from files (24h)",

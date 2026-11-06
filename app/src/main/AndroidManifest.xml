@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Lets Holdfast install its own updates without a browser -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Lets Holdfast check where any app was installed from -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <!-- Lets the "Block an app" picker see installed apps on Android 11+ -->
     <queries>
