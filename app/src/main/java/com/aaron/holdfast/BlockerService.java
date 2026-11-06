@@ -327,6 +327,13 @@ public class BlockerService extends AccessibilityService {
                 if (ri.activityInfo != null) found.add(ri.activityInfo.packageName);
             }
         }
+        // Search apps (Google Go, Bing...) open result pages in their own viewer. Every one of them
+        // answers Android's "web search" request, so catch them by that, not by name.
+        List<ResolveInfo> search = getPackageManager().queryIntentActivities(
+                new Intent(Intent.ACTION_WEB_SEARCH), flags);
+        for (ResolveInfo ri : search) {
+            if (ri.activityInfo != null) found.add(ri.activityInfo.packageName);
+        }
         found.remove(getPackageName());
         found.remove("android");
         browserPkgs = found;
