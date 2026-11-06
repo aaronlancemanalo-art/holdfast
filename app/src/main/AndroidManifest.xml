@@ -18,6 +18,14 @@
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="https" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="http" />
+        </intent>
+        <!-- Search and lite apps with built-in web viewers -->
+        <package android:name="com.google.android.apps.searchlite" />
+        <package android:name="com.google.android.googlequicksearchbox" />
     </queries>
 
     <application

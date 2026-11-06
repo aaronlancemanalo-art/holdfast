@@ -46,6 +46,22 @@ public class BlockerService extends AccessibilityService {
             "com.android.packageinstaller",
             "com.samsung.android.packageinstaller"));
 
+    /**
+     * Apps that show web pages in their own built-in viewer without registering as a browser
+     * (search apps and "lite" apps). Treated as browsers while "All browsers" is on.
+     */
+    private static final Set<String> WEB_APP_PKGS = new HashSet<>(Arrays.asList(
+            "com.google.android.apps.searchlite",        // Google Go
+            "com.google.android.googlequicksearchbox",   // Google app
+            "com.microsoft.bing",                        // Bing
+            "com.yahoo.mobile.client.android.search",    // Yahoo Search
+            "com.opera.app.news",                        // Opera News
+            "ru.yandex.searchplugin",                    // Yandex
+            "com.ecosia.android",                        // Ecosia
+            "com.qwant.liberty",                         // Qwant
+            "com.startpage.app",                         // Startpage
+            "ai.perplexity.app.android"));               // Perplexity
+
     /** Where the power menu (with its Safe mode option) lives. */
     private static final Set<String> SYSTEM_UI_PKGS = new HashSet<>(Arrays.asList(
             "com.android.systemui",
@@ -130,7 +146,8 @@ public class BlockerService extends AccessibilityService {
         }
 
         // 1b. Any browser, including ones installed after the rules were set
-        if (rules.allBrowsersBlocked() && browserPackages().contains(pkg)) {
+        if (rules.allBrowsersBlocked()
+                && (browserPackages().contains(pkg) || WEB_APP_PKGS.contains(pkg))) {
             block(appLabel(pkg) + " is blocked (all browsers are).");
             return;
         }
@@ -301,12 +318,14 @@ public class BlockerService extends AccessibilityService {
         if (browsersCheckedAt != 0 && now - browsersCheckedAt < 60_000) return browserPkgs;
         browsersCheckedAt = now;
         Set<String> found = new HashSet<>();
-        Intent web = new Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com/"))
-                .addCategory(Intent.CATEGORY_BROWSABLE);
         int flags = Build.VERSION.SDK_INT >= 23 ? PackageManager.MATCH_ALL : 0;
-        List<ResolveInfo> list = getPackageManager().queryIntentActivities(web, flags);
-        for (ResolveInfo ri : list) {
-            if (ri.activityInfo != null) found.add(ri.activityInfo.packageName);
+        for (String url : new String[]{"https://example.com/", "http://example.com/"}) {
+            Intent web = new Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    .addCategory(Intent.CATEGORY_BROWSABLE);
+            List<ResolveInfo> list = getPackageManager().queryIntentActivities(web, flags);
+            for (ResolveInfo ri : list) {
+                if (ri.activityInfo != null) found.add(ri.activityInfo.packageName);
+            }
         }
         found.remove(getPackageName());
         found.remove("android");

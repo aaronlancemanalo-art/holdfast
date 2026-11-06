@@ -185,7 +185,8 @@ public class MainActivity extends Activity {
         // ----- all browsers -----
         header("All browsers");
         if (rules.allBrowsersBlocked()) {
-            root.addView(text("ON: every browser is blocked, including ones you install later. "
+            root.addView(text("ON: every browser is blocked, including ones you install later, plus search "
+                    + "apps with built-in web viewers (Google, Google Go, Bing...). "
                     + "Other Reddit apps are blocked while reddit.com is.", 14));
             if (!rules.isPending(Rules.TYPE_BROWSERS, "")) {
                 root.addView(button("Allow browsers (24h)",
