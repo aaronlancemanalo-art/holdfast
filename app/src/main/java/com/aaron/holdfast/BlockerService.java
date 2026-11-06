@@ -148,27 +148,26 @@ public class BlockerService extends AccessibilityService {
         rules.tick();
 
         // 1. Blocked apps
-        if (rules.getApps().contains(pkg) && inFront(event, pkg)) {
+        if (rules.getApps().contains(pkg)) {
             block(appLabel(pkg) + " is blocked.");
             return;
         }
 
         // 1b. Any browser, including ones installed after the rules were set
         if (rules.allBrowsersBlocked()
-                && (browserPackages().contains(pkg) || WEB_APP_PKGS.contains(pkg))
-                && inFront(event, pkg)) {
+                && (browserPackages().contains(pkg) || WEB_APP_PKGS.contains(pkg))) {
             block(appLabel(pkg) + " is blocked (all browsers are).");
             return;
         }
 
         // 1c. Other Reddit apps, while reddit.com is blocked
-        if (rules.getSites().contains("reddit.com") && isRedditClient(pkg) && inFront(event, pkg)) {
+        if (rules.getSites().contains("reddit.com") && isRedditClient(pkg)) {
             block(appLabel(pkg) + " is a Reddit app, and Reddit is blocked.");
             return;
         }
 
         // 1d. Apps installed from a file (whatever app delivered the file) can't be opened
-        if (rules.sideloadBlocked() && isNewSideloadedApp(pkg) && inFront(event, pkg)) {
+        if (rules.sideloadBlocked() && isNewSideloadedApp(pkg)) {
             block(appLabel(pkg) + " was installed from a file, not an app store, so it's blocked.");
             return;
         }
@@ -360,22 +359,6 @@ public class BlockerService extends AccessibilityService {
         found.remove("android");
         browserPkgs = found;
         return found;
-    }
-
-    /**
-     * True when this app is really on screen: it just opened a window, or it owns the window
-     * the user is using. Background events (widgets, overlays refreshing while you use another
-     * app) don't count, so they can't kick you out of the app you're actually in.
-     */
-    private boolean inFront(AccessibilityEvent event, String pkg) {
-        if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            // A window change from a background service has no visible window of its own.
-            AccessibilityNodeInfo r = getRootInActiveWindow();
-            if (r == null || r.getPackageName() == null) return true;
-            return pkg.equals(r.getPackageName().toString()) || event.isFullScreen();
-        }
-        AccessibilityNodeInfo r = getRootInActiveWindow();
-        return r != null && r.getPackageName() != null && pkg.equals(r.getPackageName().toString());
     }
 
     /**
