@@ -218,7 +218,7 @@ public class BlockerService extends AccessibilityService {
                 block("Safe mode is blocked while tamper protection is on.");
                 return;
             }
-            if (isSettings && !installPermissionPage && treeContains(root, APP_NAME)) {
+            if (isSettings && !installPermissionPage && isHoldfastControlPage(root)) {
                 block("Holdfast's settings are protected. Turning protection off takes 24 hours.");
                 return;
             }
@@ -337,6 +337,25 @@ public class BlockerService extends AccessibilityService {
             if (!s.isEmpty() && t.contains(s)) return s;
         }
         return null;
+    }
+
+    /** Words that only appear on Settings screens that can switch off, limit or remove an app. */
+    private static final String[] CONTROL_WORDS = {
+            "force stop", "uninstall", "clear data", "clear cache", "storage", "use holdfast",
+            "device admin", "accessibility", "sleeping", "battery", "restricted", "permissions",
+            "deactivate", "disable", "shortcut", "background", "app info"};
+
+    /**
+     * A Settings screen about Holdfast that has controls to stop it (its App info page, its
+     * Accessibility switch, device admin, battery limits...). Plain lists that merely include
+     * Holdfast among other apps, like Settings > Apps, are not blocked.
+     */
+    private static boolean isHoldfastControlPage(AccessibilityNodeInfo root) {
+        if (!treeContains(root, APP_NAME)) return false;
+        for (String w : CONTROL_WORDS) {
+            if (treeContains(root, w)) return true;
+        }
+        return false;
     }
 
     // ---------- app detection ----------
