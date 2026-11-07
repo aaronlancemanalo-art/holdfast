@@ -312,7 +312,10 @@ public class BlockerService extends AccessibilityService {
                 String hit = match(n.getText(), sites);
                 if (hit != null) return hit;
             }
-            for (int c = 0; c < n.getChildCount(); c++) q.add(n.getChild(c));
+            for (int c = 0; c < n.getChildCount(); c++) {
+                AccessibilityNodeInfo ch = n.getChild(c);
+                if (ch != null) q.add(ch); // getChild can return null; adding it crashed the scan
+            }
         }
         return null;
     }
@@ -448,7 +451,10 @@ public class BlockerService extends AccessibilityService {
             if (t != null && t.toString().trim().equalsIgnoreCase(text)) return true;
             CharSequence d = n.getContentDescription();
             if (d != null && d.toString().trim().equalsIgnoreCase(text)) return true;
-            for (int c = 0; c < n.getChildCount(); c++) q.add(n.getChild(c));
+            for (int c = 0; c < n.getChildCount(); c++) {
+                AccessibilityNodeInfo ch = n.getChild(c);
+                if (ch != null) q.add(ch); // getChild can return null; adding it crashed the scan
+            }
         }
         return false;
     }
@@ -464,7 +470,10 @@ public class BlockerService extends AccessibilityService {
             if (contains(n.getText(), needle) || contains(n.getContentDescription(), needle)) {
                 return true;
             }
-            for (int c = 0; c < n.getChildCount(); c++) q.add(n.getChild(c));
+            for (int c = 0; c < n.getChildCount(); c++) {
+                AccessibilityNodeInfo ch = n.getChild(c);
+                if (ch != null) q.add(ch); // getChild can return null; adding it crashed the scan
+            }
         }
         return false;
     }

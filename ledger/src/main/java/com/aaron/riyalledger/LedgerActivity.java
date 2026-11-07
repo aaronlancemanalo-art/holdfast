@@ -52,7 +52,7 @@ public class LedgerActivity extends Activity {
     /** Holdfast does the download and install, the same way it updates itself. */
     private static final String HOLDFAST_PKG = "com.aaron.holdfast";
     private static final String ACTION_UPDATE_LEDGER = "com.aaron.holdfast.action.UPDATE_LEDGER";
-    private static final long CHECK_EVERY_MS = 6L * 60 * 60 * 1000;
+    private static final long CHECK_EVERY_MS = 60L * 60 * 1000;
 
     private WebView web;
     private ValueCallback<Uri[]> fileCallback;
@@ -151,6 +151,10 @@ public class LedgerActivity extends Activity {
         @JavascriptInterface
         public boolean available() { return true; }
 
+        /** Settings > Data > "Check for updates" in the ledger. */
+        @JavascriptInterface
+        public void checkForUpdates() { runOnUiThread(() -> checkForUpdate(true)); }
+
         /** The phone app's build number, shown in the ledger's footer and Settings. */
         @JavascriptInterface
         @SuppressWarnings("deprecation")
@@ -188,24 +192,30 @@ public class LedgerActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        checkForUpdate();
+        checkForUpdate(false);
     }
 
     /**
      * Compares this build's fingerprint with the latest release's. Only a real change to the
-     * ledger counts, so a Holdfast-only rebuild doesn't prompt. Checks at most every 6 hours.
+     * ledger counts, so a Holdfast-only rebuild doesn't prompt. Checks at most hourly on its own;
+     * the ledger's Settings > Data has a button to check right away.
      * This runs outside the WebView; the page itself still can't reach the internet.
      */
-    private void checkForUpdate() {
+    private void checkForUpdate(boolean manual) {
         SharedPreferences prefs = getSharedPreferences("updates", MODE_PRIVATE);
         long now = System.currentTimeMillis();
-        if (now - prefs.getLong("lastCheck", 0) < CHECK_EVERY_MS) return;
+        if (!manual && now - prefs.getLong("lastCheck", 0) < CHECK_EVERY_MS) return;
         prefs.edit().putLong("lastCheck", now).apply();
         new Thread(() -> {
             String mine = readAsset("build-hash.txt");
             String latest = fetch(HASH_URL);
-            if (mine.isEmpty() || latest.isEmpty() || mine.equals(latest)) return;
-            if (latest.equals(prefs.getString("skipped", ""))) return;
+            if (mine.isEmpty() || latest.isEmpty() || mine.equals(latest)) {
+                if (manual) runOnUiThread(() -> toast(latest.isEmpty()
+                        ? "Couldn't check for updates. Try again with internet on."
+                        : "Riyal Ledger is up to date."));
+                return;
+            }
+            if (!manual && latest.equals(prefs.getString("skipped", ""))) return;
             runOnUiThread(() -> {
                 if (isFinishing()) return;
                 new AlertDialog.Builder(this)
