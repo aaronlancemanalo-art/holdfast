@@ -239,8 +239,11 @@ public class BlockerService extends AccessibilityService {
         if (isInstaller && rules.sideloadBlocked()) {
             boolean installScreen = (treeContains(root, "install") || treeContains(root, "update"))
                     && !treeContains(root, "uninstall");
-            boolean ownUpdate = rules.inSelfUpdateWindow()
-                    && (treeContains(root, APP_NAME) || treeContains(root, LEDGER_NAME));
+            // The window opens only after Holdfast has checked that the file it is about to install
+            // is Holdfast or Riyal Ledger, signed with Holdfast's key (MainActivity.isOwnSignedApk).
+            // Within it, every installer screen passes: Samsung's installer and Play Protect show
+            // screens without the app's name, and matching on the name dropped them.
+            boolean ownUpdate = rules.inSelfUpdateWindow();
             if (installScreen && !ownUpdate) {
                 performGlobalAction(GLOBAL_ACTION_BACK);
                 block("Installing apps from files is blocked. Use the Play Store.");
@@ -400,7 +403,6 @@ public class BlockerService extends AccessibilityService {
         return found;
     }
 
-    private static final String LEDGER_NAME = "Riyal Ledger";
     private Boolean ledgerTrusted = null;
     private long ledgerCheckedAt = 0;
 

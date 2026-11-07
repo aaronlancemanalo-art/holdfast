@@ -441,6 +441,39 @@ public class MainActivity extends Activity {
         installIfReady("ledgerDownloadId");
     }
 
+    /** True if the APK at uri is package `expected` and signed with the same key as Holdfast. */
+    @SuppressWarnings("deprecation")
+    private boolean isOwnSignedApk(Uri uri, String expected) {
+        java.io.File tmp = new java.io.File(getCacheDir(), "verify.apk");
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri);
+             java.io.OutputStream out = new java.io.FileOutputStream(tmp)) {
+            if (in == null) return false;
+            byte[] buf = new byte[65536];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        } catch (Exception e) {
+            return false;
+        }
+        try {
+            PackageManager pm = getPackageManager();
+            if (Build.VERSION.SDK_INT >= 28) {
+                PackageInfo apk = pm.getPackageArchiveInfo(tmp.getPath(), PackageManager.GET_SIGNING_CERTIFICATES);
+                PackageInfo me = pm.getPackageInfo(getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES);
+                if (apk == null || apk.signingInfo == null || !expected.equals(apk.packageName)) return false;
+                return java.util.Arrays.equals(apk.signingInfo.getApkContentsSigners(), me.signingInfo.getApkContentsSigners());
+            } else {
+                PackageInfo apk = pm.getPackageArchiveInfo(tmp.getPath(), PackageManager.GET_SIGNATURES);
+                PackageInfo me = pm.getPackageInfo(getPackageName(), PackageManager.GET_SIGNATURES);
+                if (apk == null || !expected.equals(apk.packageName)) return false;
+                return java.util.Arrays.equals(apk.signatures, me.signatures);
+            }
+        } catch (Exception e) {
+            return false;
+        } finally {
+            tmp.delete();
+        }
+    }
+
     private void installIfReady(String key) {
         long id = getPreferences(MODE_PRIVATE).getLong(key, -1);
         if (id < 0) return;
@@ -467,6 +500,14 @@ public class MainActivity extends Activity {
         Uri uri = dm.getUriForDownloadedFile(id);
         if (uri == null) {
             updateError = "downloaded file missing";
+            render();
+            return;
+        }
+        // Only our own APKs get the install window: check the file is the expected app and is
+        // signed with Holdfast's key before letting any installer screen through.
+        String expected = "ledgerDownloadId".equals(key) ? LEDGER_PKG : getPackageName();
+        if (!isOwnSignedApk(uri, expected)) {
+            updateError = "the download failed a safety check, so it wasn't installed";
             render();
             return;
         }
