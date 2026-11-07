@@ -49,6 +49,22 @@
             </intent-filter>
         </activity>
 
+        <!-- Riyal Ledger: its own icon in the app drawer, its own entry in recents -->
+        <activity
+            android:name=".LedgerActivity"
+            android:exported="true"
+            android:label="Riyal Ledger"
+            android:icon="@drawable/ledger_icon"
+            android:taskAffinity="com.aaron.holdfast.ledger"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".BlockActivity"
             android:excludeFromRecents="true"

@@ -14,6 +14,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Riyal Ledger is bundled into the APK from its own repo, so the two never drift apart.
+      - name: Get Riyal Ledger
+        uses: actions/checkout@v4
+        with:
+          repository: aaronlancemanalo-art/riyal-ledger
+          path: ledger-src
+
+      - name: Bundle Riyal Ledger into the app
+        run: |
+          mkdir -p app/src/main/assets/ledger
+          cp -r ledger-src/index.html ledger-src/manifest.webmanifest ledger-src/css ledger-src/js ledger-src/fonts ledger-src/icons app/src/main/assets/ledger/
+          rm -rf ledger-src
+          echo "Bundled Riyal Ledger $(git -C . rev-parse --short HEAD 2>/dev/null)"
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

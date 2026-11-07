@@ -28,3 +28,12 @@ Do 3 before 4: once the blocker is on, Settings pages showing "Holdfast" get blo
 ## Known escape hatches
 
 Safe Mode (disables third-party apps), factory reset, ADB from a PC. It raises friction, it doesn't make bypass impossible.
+
+## Riyal Ledger (built in)
+
+Holdfast also carries Riyal Ledger, Aaron's budget and savings forecast app, because Holdfast blocks every browser and every app installed from a file, so the ledger can't run on the phone any other way.
+
+- It gets its own **Riyal Ledger** icon in the app drawer and its own entry in recents. There's also an **Open Riyal Ledger** button on Holdfast's main screen.
+- The web app is copied from the `aaronlancemanalo-art/riyal-ledger` repo into the APK on every build (`app/src/main/assets/ledger`, not committed). To ship a ledger change to the phone: push to riyal-ledger, then run this repo's **Build APK** workflow (Actions tab > Build APK > Run workflow), and let Holdfast update itself.
+- It runs fully offline from the bundled files, refuses to load anything from the internet, and can't navigate anywhere else, so it doesn't reopen a browser route.
+- Data lives in the WebView's storage inside Holdfast. Back up from the ledger's Settings > Data; Android asks where to save. Uninstalling Holdfast deletes the ledger data.

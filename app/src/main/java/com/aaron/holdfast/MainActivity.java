@@ -113,6 +113,7 @@ public class MainActivity extends Activity {
         TextView count = text("Blocked " + rules.blocksToday() + " times today", 14);
         count.setAlpha(0.7f);
         root.addView(count);
+        root.addView(button("Open Riyal Ledger", v -> startActivity(new Intent(this, LedgerActivity.class))));
 
         // ----- setup status -----
         header("Setup");
