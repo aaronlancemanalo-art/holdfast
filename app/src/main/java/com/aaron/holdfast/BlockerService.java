@@ -358,7 +358,12 @@ public class BlockerService extends AccessibilityService {
      * Holdfast among other apps, like Settings > Apps, are not blocked.
      */
     private static boolean isHoldfastControlPage(AccessibilityNodeInfo root) {
-        if (!treeContains(root, APP_NAME)) return false;
+        // Holdfast must be the subject of the page: its name as a title on its own, not just
+        // mentioned (e.g. "installed from Holdfast" on Riyal Ledger's App info page).
+        boolean aboutHoldfast = treeHasExactText(root, "holdfast")
+                || treeContains(root, "use holdfast")
+                || treeContains(root, "holdfast shortcut");
+        if (!aboutHoldfast) return false;
         for (String w : CONTROL_WORDS) {
             if (treeContains(root, w)) return true;
         }
