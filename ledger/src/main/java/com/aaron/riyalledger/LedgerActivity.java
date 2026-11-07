@@ -150,6 +150,19 @@ public class LedgerActivity extends Activity {
 
         @JavascriptInterface
         public boolean available() { return true; }
+
+        /** The phone app's build number, shown in the ledger's footer and Settings. */
+        @JavascriptInterface
+        @SuppressWarnings("deprecation")
+        public String build() {
+            try {
+                android.content.pm.PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+                long v = android.os.Build.VERSION.SDK_INT >= 28 ? pi.getLongVersionCode() : pi.versionCode;
+                return String.valueOf(v);
+            } catch (Exception e) {
+                return "";
+            }
+        }
     }
 
     @Override
