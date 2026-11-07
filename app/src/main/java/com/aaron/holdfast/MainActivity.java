@@ -12,6 +12,7 @@ import android.os.Environment;
 import android.widget.Toast;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -66,7 +67,10 @@ public class MainActivity extends Activity {
         @Override
         public void onReceive(Context c, Intent i) {
             long id = i.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-            if (id == savedDownloadId()) installIfReady();
+            SharedPreferences prefs = getPreferences(MODE_PRIVATE);
+            if (id >= 0 && (id == prefs.getLong("downloadId", -1) || id == prefs.getLong("ledgerDownloadId", -1))) {
+                installIfReady();
+            }
         }
     };
 
