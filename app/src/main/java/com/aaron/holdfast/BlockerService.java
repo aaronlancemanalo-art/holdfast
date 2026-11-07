@@ -340,10 +340,17 @@ public class BlockerService extends AccessibilityService {
     }
 
     /** Words that only appear on Settings screens that can switch off, limit or remove an app. */
+    // Kept to words that never show up in a plain app list (no "disabled", "storage" etc., which
+    // list rows can show for other apps).
     private static final String[] CONTROL_WORDS = {
-            "force stop", "uninstall", "clear data", "clear cache", "storage", "use holdfast",
-            "device admin", "accessibility", "sleeping", "battery", "restricted", "permissions",
-            "deactivate", "disable", "shortcut", "background", "app info"};
+            "force stop",            // Holdfast's App info page
+            "use holdfast",          // its Accessibility switch
+            "holdfast shortcut",     // its Accessibility shortcut page
+            "device admin",          // device admin apps
+            "deactivate this",       // device admin detail
+            "sleeping apps",         // battery: sleeping / deep sleeping lists
+            "unrestricted",          // per-app battery page
+            "allow restricted settings"};
 
     /**
      * A Settings screen about Holdfast that has controls to stop it (its App info page, its
