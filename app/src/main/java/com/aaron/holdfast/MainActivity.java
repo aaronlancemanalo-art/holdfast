@@ -122,25 +122,6 @@ public class MainActivity extends Activity {
         count.setAlpha(0.7f);
         root.addView(count);
 
-        // ----- Riyal Ledger -----
-        header("Riyal Ledger");
-        long lv = versionOf(LEDGER_PKG);
-        if (lv < 0) {
-            root.addView(text("Your budget and savings app. Installs from files are blocked, so Holdfast "
-                    + "installs this one for you. It's the only app it trusts this way.", 14));
-            root.addView(button(downloading ? "Downloading..." : "Install Riyal Ledger", v -> {
-                if (!downloading) startDownload(true);
-            }));
-        } else {
-            root.addView(button("Open Riyal Ledger", v -> {
-                Intent i = getPackageManager().getLaunchIntentForPackage(LEDGER_PKG);
-                if (i != null) startActivity(i);
-            }));
-            if (remoteVersion > lv && !downloading) {
-                root.addView(button("Update Riyal Ledger (build " + remoteVersion + ")", v -> startDownload(true)));
-            }
-        }
-
         // ----- setup status -----
         header("Setup");
         boolean a11y = isAccessibilityOn();

@@ -33,7 +33,7 @@ Safe Mode (disables third-party apps), factory reset, ADB from a PC. It raises f
 
 Riyal Ledger is Aaron's budget and savings forecast app. Holdfast blocks every browser and every app installed from a file, so the ledger can't run in a browser or be sideloaded normally. Instead it is built here, next to Holdfast, and Holdfast installs it.
 
-- **Install / update / open:** Holdfast's main screen has a Riyal Ledger section. Holdfast downloads `riyal-ledger.apk` from the latest release and opens the installer, the same way it updates itself.
+- **Install / update:** Riyal Ledger is installed (Nov 2026). Holdfast no longer shows a button for it. The download-and-install code is still in `MainActivity.startDownload(true)` if an update path is needed later; until then a new ledger build reaches the phone only through Holdfast's 24-hour "Allow installs from files" route.
 - **Why it isn't blocked:** `BlockerService.isTrustedOwnApp` trusts exactly one package, `com.aaron.riyalledger`, and only when it is signed with Holdfast's own key. A different app can't borrow the name, and nothing else gets an exception.
 - **It can't be used as a browser:** the app runs fully offline from bundled files, blocks every internet request and refuses to open any other page.
 - **Source:** the web app lives in `aaronlancemanalo-art/riyal-ledger`. The `ledger/` module here is a thin Android shell; the workflow copies the web app into it on every build (`ledger/src/main/assets/ledger`, not committed). To ship a ledger change: push to riyal-ledger, then run **Build APK** here (Actions > Build APK > Run workflow).
