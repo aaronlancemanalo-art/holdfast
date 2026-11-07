@@ -47,6 +47,11 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Riyal Ledger's "Update" button lands here; Holdfast then downloads and installs it -->
+            <intent-filter>
+                <action android:name="com.aaron.holdfast.action.UPDATE_LEDGER" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
 
         <activity

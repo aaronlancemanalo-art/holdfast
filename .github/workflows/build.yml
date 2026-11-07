@@ -26,6 +26,12 @@ jobs:
           mkdir -p ledger/src/main/assets/ledger
           cp -r ledger-src/index.html ledger-src/manifest.webmanifest ledger-src/css ledger-src/js ledger-src/fonts ledger-src/icons ledger/src/main/assets/ledger/
           rm -rf ledger-src
+          # Fingerprint of everything that makes up the ledger app. It only changes when the
+          # ledger does, so the app prompts for updates only when there is something new.
+          HASH=$(cd ledger && find . -type f -not -path './build/*' -not -name build-hash.txt | sort | xargs sha256sum | sha256sum | cut -c1-16)
+          echo "$HASH" > ledger/src/main/assets/build-hash.txt
+          echo "$HASH" > ledger-hash.txt
+          echo "Ledger fingerprint: $HASH"
 
       - uses: actions/setup-java@v4
         with:
@@ -54,7 +60,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v${{ github.run_number }}" holdfast.apk riyal-ledger.apk version.txt \
+          gh release create "v${{ github.run_number }}" holdfast.apk riyal-ledger.apk version.txt ledger-hash.txt \
             --title "Build ${{ github.run_number }}" \
             --notes "Automatic build from main." \
             --latest

@@ -5,4 +5,4 @@ local.properties
 .idea/
 *.iml
 app/holdfast.keystore
-ledger/src/main/assets/ledger/
+ledger/src/main/assets/

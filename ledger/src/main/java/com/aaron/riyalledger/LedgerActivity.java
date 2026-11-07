@@ -2,6 +2,8 @@ package com.aaron.riyalledger;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.SharedPreferences;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
@@ -18,7 +20,11 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -39,6 +45,14 @@ public class LedgerActivity extends Activity {
     private static final String ORIGIN = "https://" + HOST + "/";
     private static final int REQ_SAVE = 41;
     private static final int REQ_OPEN = 42;
+
+    /** Fingerprint of the latest ledger build, published with every Holdfast release. */
+    private static final String HASH_URL =
+            "https://github.com/aaronlancemanalo-art/holdfast/releases/latest/download/ledger-hash.txt";
+    /** Holdfast does the download and install, the same way it updates itself. */
+    private static final String HOLDFAST_PKG = "com.aaron.holdfast";
+    private static final String ACTION_UPDATE_LEDGER = "com.aaron.holdfast.action.UPDATE_LEDGER";
+    private static final long CHECK_EVERY_MS = 6L * 60 * 60 * 1000;
 
     private WebView web;
     private ValueCallback<Uri[]> fileCallback;
@@ -155,6 +169,77 @@ public class LedgerActivity extends Activity {
                 }
             }
             pendingSave = null;
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        checkForUpdate();
+    }
+
+    /**
+     * Compares this build's fingerprint with the latest release's. Only a real change to the
+     * ledger counts, so a Holdfast-only rebuild doesn't prompt. Checks at most every 6 hours.
+     * This runs outside the WebView; the page itself still can't reach the internet.
+     */
+    private void checkForUpdate() {
+        SharedPreferences prefs = getSharedPreferences("updates", MODE_PRIVATE);
+        long now = System.currentTimeMillis();
+        if (now - prefs.getLong("lastCheck", 0) < CHECK_EVERY_MS) return;
+        prefs.edit().putLong("lastCheck", now).apply();
+        new Thread(() -> {
+            String mine = readAsset("build-hash.txt");
+            String latest = fetch(HASH_URL);
+            if (mine.isEmpty() || latest.isEmpty() || mine.equals(latest)) return;
+            if (latest.equals(prefs.getString("skipped", ""))) return;
+            runOnUiThread(() -> {
+                if (isFinishing()) return;
+                new AlertDialog.Builder(this)
+                        .setTitle("Update ready")
+                        .setMessage("A new version of Riyal Ledger is ready. Holdfast will download and install it. "
+                                + "Your entries stay as they are.")
+                        .setPositiveButton("Update", (d, w) -> askHoldfast())
+                        .setNegativeButton("Later", (d, w) -> prefs.edit().putString("skipped", latest).apply())
+                        .show();
+            });
+        }).start();
+    }
+
+    private void askHoldfast() {
+        try {
+            startActivity(new Intent(ACTION_UPDATE_LEDGER).setPackage(HOLDFAST_PKG)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) {
+            toast("Holdfast isn't installed, so it can't update Riyal Ledger.");
+        }
+    }
+
+    private String readAsset(String name) {
+        try (BufferedReader r = new BufferedReader(new InputStreamReader(getAssets().open(name)))) {
+            String l = r.readLine();
+            return l == null ? "" : l.trim();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static String fetch(String url) {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(8000);
+            c.setInstanceFollowRedirects(true);
+            if (c.getResponseCode() != 200) return "";
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream()))) {
+                String l = r.readLine();
+                return l == null ? "" : l.trim();
+            }
+        } catch (Exception e) {
+            return "";
+        } finally {
+            if (c != null) c.disconnect();
         }
     }
 

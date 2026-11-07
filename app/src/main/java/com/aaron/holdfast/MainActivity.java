@@ -88,6 +88,30 @@ public class MainActivity extends Activity {
         IntentFilter f = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(downloadDone, f, Context.RECEIVER_EXPORTED);
         else registerReceiver(downloadDone, f);
+        handleUpdateRequest(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        handleUpdateRequest(intent);
+    }
+
+    static final String ACTION_UPDATE_LEDGER = "com.aaron.holdfast.action.UPDATE_LEDGER";
+    /** First ledger build that checks for its own updates. Older installs get a one-time button. */
+    private static final int LEDGER_SELF_UPDATE_BUILD = 18;
+
+    /**
+     * Riyal Ledger asks for its update here. Holdfast downloads riyal-ledger.apk from its own
+     * latest release and opens the installer, the same path as its own updates. Only the ledger
+     * is ever downloaded, and Android only installs it over the existing app if it carries the
+     * same signature.
+     */
+    private void handleUpdateRequest(Intent i) {
+        if (i == null || !ACTION_UPDATE_LEDGER.equals(i.getAction())) return;
+        setIntent(new Intent(this, MainActivity.class));
+        if (versionOf(LEDGER_PKG) < 0) return;
+        if (!downloading) startDownload(true);
     }
 
     @Override
@@ -121,6 +145,14 @@ public class MainActivity extends Activity {
         TextView count = text("Blocked " + rules.blocksToday() + " times today", 14);
         count.setAlpha(0.7f);
         root.addView(count);
+
+        // One-time: ledger builds before LEDGER_SELF_UPDATE_BUILD can't check for updates
+        // themselves, so offer the update here once. Disappears after that.
+        long lv = versionOf(LEDGER_PKG);
+        if (lv >= 0 && lv < LEDGER_SELF_UPDATE_BUILD) {
+            root.addView(button(downloading ? "Downloading..." : "Update Riyal Ledger (adds in-app updates)",
+                    v -> { if (!downloading) startDownload(true); }));
+        }
 
         // ----- setup status -----
         header("Setup");

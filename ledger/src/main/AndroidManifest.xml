@@ -4,6 +4,11 @@
     <!-- WebView needs this to run at all. The app itself blocks every outside request. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Lets the ledger hand updates to Holdfast -->
+    <queries>
+        <package android:name="com.aaron.holdfast" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@drawable/ledger_icon"
