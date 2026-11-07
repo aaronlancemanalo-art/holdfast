@@ -29,11 +29,12 @@ Do 3 before 4: once the blocker is on, Settings pages showing "Holdfast" get blo
 
 Safe Mode (disables third-party apps), factory reset, ADB from a PC. It raises friction, it doesn't make bypass impossible.
 
-## Riyal Ledger (built in)
+## Riyal Ledger (separate app, installed by Holdfast)
 
-Holdfast also carries Riyal Ledger, Aaron's budget and savings forecast app, because Holdfast blocks every browser and every app installed from a file, so the ledger can't run on the phone any other way.
+Riyal Ledger is Aaron's budget and savings forecast app. Holdfast blocks every browser and every app installed from a file, so the ledger can't run in a browser or be sideloaded normally. Instead it is built here, next to Holdfast, and Holdfast installs it.
 
-- It gets its own **Riyal Ledger** icon in the app drawer and its own entry in recents. There's also an **Open Riyal Ledger** button on Holdfast's main screen.
-- The web app is copied from the `aaronlancemanalo-art/riyal-ledger` repo into the APK on every build (`app/src/main/assets/ledger`, not committed). To ship a ledger change to the phone: push to riyal-ledger, then run this repo's **Build APK** workflow (Actions tab > Build APK > Run workflow), and let Holdfast update itself.
-- It runs fully offline from the bundled files, refuses to load anything from the internet, and can't navigate anywhere else, so it doesn't reopen a browser route.
-- Data lives in the WebView's storage inside Holdfast. Back up from the ledger's Settings > Data; Android asks where to save. Uninstalling Holdfast deletes the ledger data.
+- **Install / update / open:** Holdfast's main screen has a Riyal Ledger section. Holdfast downloads `riyal-ledger.apk` from the latest release and opens the installer, the same way it updates itself.
+- **Why it isn't blocked:** `BlockerService.isTrustedOwnApp` trusts exactly one package, `com.aaron.riyalledger`, and only when it is signed with Holdfast's own key. A different app can't borrow the name, and nothing else gets an exception.
+- **It can't be used as a browser:** the app runs fully offline from bundled files, blocks every internet request and refuses to open any other page.
+- **Source:** the web app lives in `aaronlancemanalo-art/riyal-ledger`. The `ledger/` module here is a thin Android shell; the workflow copies the web app into it on every build (`ledger/src/main/assets/ledger`, not committed). To ship a ledger change: push to riyal-ledger, then run **Build APK** here (Actions > Build APK > Run workflow).
+- **Data** lives inside the Riyal Ledger app. Back up from its Settings > Data; Android asks where to save. Uninstalling the ledger app deletes its data.

@@ -147,6 +147,10 @@ public class BlockerService extends AccessibilityService {
 
         rules.tick();
 
+        // 0. Riyal Ledger: the one app Holdfast installs itself. Trusted only under its own
+        // package name AND when signed with Holdfast's key, so nothing else can pose as it.
+        if (isTrustedOwnApp(pkg)) return;
+
         // 1. Blocked apps
         if (rules.getApps().contains(pkg)) {
             block(appLabel(pkg) + " is blocked.");
@@ -235,7 +239,8 @@ public class BlockerService extends AccessibilityService {
         if (isInstaller && rules.sideloadBlocked()) {
             boolean installScreen = (treeContains(root, "install") || treeContains(root, "update"))
                     && !treeContains(root, "uninstall");
-            boolean ownUpdate = rules.inSelfUpdateWindow() && treeContains(root, APP_NAME);
+            boolean ownUpdate = rules.inSelfUpdateWindow()
+                    && (treeContains(root, APP_NAME) || treeContains(root, LEDGER_NAME));
             if (installScreen && !ownUpdate) {
                 performGlobalAction(GLOBAL_ACTION_BACK);
                 block("Installing apps from files is blocked. Use the Play Store.");
@@ -359,6 +364,25 @@ public class BlockerService extends AccessibilityService {
         found.remove("android");
         browserPkgs = found;
         return found;
+    }
+
+    private static final String LEDGER_NAME = "Riyal Ledger";
+    private Boolean ledgerTrusted = null;
+    private long ledgerCheckedAt = 0;
+
+    private boolean isTrustedOwnApp(String pkg) {
+        if (!MainActivity.LEDGER_PKG.equals(pkg)) return false;
+        long now = SystemClock.uptimeMillis();
+        if (ledgerTrusted == null || now - ledgerCheckedAt > 60_000) {
+            ledgerCheckedAt = now;
+            try {
+                ledgerTrusted = getPackageManager().checkSignatures(getPackageName(), pkg)
+                        == PackageManager.SIGNATURE_MATCH;
+            } catch (Exception e) {
+                ledgerTrusted = false;
+            }
+        }
+        return ledgerTrusted;
     }
 
     /**

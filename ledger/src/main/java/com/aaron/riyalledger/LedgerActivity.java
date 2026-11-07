@@ -1,4 +1,4 @@
-package com.aaron.holdfast;
+package com.aaron.riyalledger;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
@@ -26,7 +26,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Riyal Ledger, the budget and savings forecast app, running inside Holdfast.
+ * Riyal Ledger, the budget and savings forecast app, as its own Android app.
  *
  * The web app is bundled into the APK at build time (assets/ledger, copied from the
  * riyal-ledger repo by the GitHub workflow) and served from a fixed https origin so its
@@ -35,7 +35,7 @@ import java.util.Map;
  */
 public class LedgerActivity extends Activity {
 
-    private static final String HOST = "ledger.holdfast.local";
+    private static final String HOST = "app.riyalledger.local";
     private static final String ORIGIN = "https://" + HOST + "/";
     private static final int REQ_SAVE = 41;
     private static final int REQ_OPEN = 42;

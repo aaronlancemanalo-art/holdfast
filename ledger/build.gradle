@@ -1,0 +1,47 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Riyal Ledger as its own app. Built and signed alongside Holdfast with the same key,
+// which is how Holdfast recognises it as trusted (see BlockerService.isTrustedOwnApp).
+android {
+    namespace 'com.aaron.riyalledger'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.aaron.riyalledger'
+        minSdk 26
+        targetSdk 34
+        versionCode((System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger())
+        versionName "1.0.${System.getenv('GITHUB_RUN_NUMBER') ?: '0'}"
+    }
+
+    signingConfigs {
+        release {
+            storeFile file('../app/holdfast.keystore')
+            storePassword 'holdfast-local'
+            keyAlias 'holdfast'
+            keyPassword 'holdfast-local'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+        debug {
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

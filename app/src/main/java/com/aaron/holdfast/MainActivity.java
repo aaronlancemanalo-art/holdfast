@@ -48,6 +48,10 @@ public class MainActivity extends Activity {
             "https://github.com/" + REPO + "/releases/latest/download/version.txt";
     private static final String APK_URL =
             "https://github.com/" + REPO + "/releases/latest/download/holdfast.apk";
+    /** Riyal Ledger, Aaron's budget app: built with Holdfast, signed with the same key, installed by Holdfast. */
+    static final String LEDGER_PKG = "com.aaron.riyalledger";
+    private static final String LEDGER_APK_URL =
+            "https://github.com/" + REPO + "/releases/latest/download/riyal-ledger.apk";
     private static final String APK_MIME = "application/vnd.android.package-archive";
 
     private Rules rules;
@@ -113,7 +117,25 @@ public class MainActivity extends Activity {
         TextView count = text("Blocked " + rules.blocksToday() + " times today", 14);
         count.setAlpha(0.7f);
         root.addView(count);
-        root.addView(button("Open Riyal Ledger", v -> startActivity(new Intent(this, LedgerActivity.class))));
+
+        // ----- Riyal Ledger -----
+        header("Riyal Ledger");
+        long lv = versionOf(LEDGER_PKG);
+        if (lv < 0) {
+            root.addView(text("Your budget and savings app. Installs from files are blocked, so Holdfast "
+                    + "installs this one for you. It's the only app it trusts this way.", 14));
+            root.addView(button(downloading ? "Downloading..." : "Install Riyal Ledger", v -> {
+                if (!downloading) startDownload(true);
+            }));
+        } else {
+            root.addView(button("Open Riyal Ledger", v -> {
+                Intent i = getPackageManager().getLaunchIntentForPackage(LEDGER_PKG);
+                if (i != null) startActivity(i);
+            }));
+            if (remoteVersion > lv && !downloading) {
+                root.addView(button("Update Riyal Ledger (build " + remoteVersion + ")", v -> startDownload(true)));
+            }
+        }
 
         // ----- setup status -----
         header("Setup");
@@ -262,7 +284,7 @@ public class MainActivity extends Activity {
             if (downloading) {
                 root.addView(text("Downloading... the install screen opens by itself.", 14));
             } else {
-                root.addView(button("Download update", v -> startDownload()));
+                root.addView(button("Download update", v -> startDownload(false)));
             }
             TextView hint = text("Holdfast downloads it itself, no browser needed. Tap Update when asked. "
                     + "Your rules are kept.", 12);
@@ -373,7 +395,7 @@ public class MainActivity extends Activity {
     }
 
     /** Downloads the update with Android's own downloader, so no browser is needed. */
-    private void startDownload() {
+    private void startDownload(boolean ledger) {
         if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
             rules.openInstallPermissionWindow();
             Toast.makeText(this, "Allow Holdfast to install updates, then come back and tap Download again.",
@@ -383,25 +405,27 @@ public class MainActivity extends Activity {
             return;
         }
         DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-        DownloadManager.Request r = new DownloadManager.Request(Uri.parse(APK_URL))
-                .setTitle("Holdfast update")
+        DownloadManager.Request r = new DownloadManager.Request(Uri.parse(ledger ? LEDGER_APK_URL : APK_URL))
+                .setTitle(ledger ? "Riyal Ledger" : "Holdfast update")
                 .setMimeType(APK_MIME)
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
                 .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS,
-                        "holdfast-" + remoteVersion + "-" + System.currentTimeMillis() + ".apk");
+                        (ledger ? "riyal-ledger-" : "holdfast-") + remoteVersion + "-" + System.currentTimeMillis() + ".apk");
         long id = dm.enqueue(r);
-        getPreferences(MODE_PRIVATE).edit().putLong("downloadId", id).apply();
+        getPreferences(MODE_PRIVATE).edit().putLong(ledger ? "ledgerDownloadId" : "downloadId", id).apply();
         downloading = true;
         render();
     }
 
-    private long savedDownloadId() {
-        return getPreferences(MODE_PRIVATE).getLong("downloadId", -1);
+    /** If the last Holdfast or Riyal Ledger download finished, open the installer and forget it. */
+    private void installIfReady() {
+        downloading = false;
+        installIfReady("downloadId");
+        installIfReady("ledgerDownloadId");
     }
 
-    /** If the last update download finished, open the installer and forget the download. */
-    private void installIfReady() {
-        long id = savedDownloadId();
+    private void installIfReady(String key) {
+        long id = getPreferences(MODE_PRIVATE).getLong(key, -1);
         if (id < 0) return;
         DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
         int status = -1;
@@ -417,8 +441,7 @@ public class MainActivity extends Activity {
             downloading = true;
             return;
         }
-        getPreferences(MODE_PRIVATE).edit().remove("downloadId").apply();
-        downloading = false;
+        getPreferences(MODE_PRIVATE).edit().remove(key).apply();
         if (status != DownloadManager.STATUS_SUCCESSFUL) {
             updateError = "download failed, try again";
             render();
@@ -442,10 +465,14 @@ public class MainActivity extends Activity {
         }
     }
 
-    @SuppressWarnings("deprecation")
     private long installedVersion() {
+        return versionOf(getPackageName());
+    }
+
+    @SuppressWarnings("deprecation")
+    private long versionOf(String pkg) {
         try {
-            PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+            PackageInfo pi = getPackageManager().getPackageInfo(pkg, 0);
             return Build.VERSION.SDK_INT >= 28 ? pi.getLongVersionCode() : pi.versionCode;
         } catch (PackageManager.NameNotFoundException e) {
             return -1;

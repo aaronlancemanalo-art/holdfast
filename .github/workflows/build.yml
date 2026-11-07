@@ -23,10 +23,9 @@ jobs:
 
       - name: Bundle Riyal Ledger into the app
         run: |
-          mkdir -p app/src/main/assets/ledger
-          cp -r ledger-src/index.html ledger-src/manifest.webmanifest ledger-src/css ledger-src/js ledger-src/fonts ledger-src/icons app/src/main/assets/ledger/
+          mkdir -p ledger/src/main/assets/ledger
+          cp -r ledger-src/index.html ledger-src/manifest.webmanifest ledger-src/css ledger-src/js ledger-src/fonts ledger-src/icons ledger/src/main/assets/ledger/
           rm -rf ledger-src
-          echo "Bundled Riyal Ledger $(git -C . rev-parse --short HEAD 2>/dev/null)"
 
       - uses: actions/setup-java@v4
         with:
@@ -48,13 +47,14 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
           cp app/build/outputs/apk/release/app-release.apk holdfast.apk
+          cp ledger/build/outputs/apk/release/ledger-release.apk riyal-ledger.apk
           echo "${{ github.run_number }}" > version.txt
 
       - name: Publish release (the app checks this for updates)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v${{ github.run_number }}" holdfast.apk version.txt \
+          gh release create "v${{ github.run_number }}" holdfast.apk riyal-ledger.apk version.txt \
             --title "Build ${{ github.run_number }}" \
             --notes "Automatic build from main." \
             --latest

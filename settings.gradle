@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "Holdfast"
-include ':app'
+include ':app', ':ledger'
