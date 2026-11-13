@@ -101,6 +101,9 @@ public class BlockerService extends AccessibilityService {
     private Set<String> browserPkgs = new HashSet<>();
     private long browsersCheckedAt = 0;
     private final Map<String, Boolean> redditClientCache = new HashMap<>();
+    private final Map<String, Boolean> browserNameCache = new HashMap<>();
+    private final Map<String, Boolean> systemAppCache = new HashMap<>();
+    private final Map<String, Long> lastDeepScan = new HashMap<>();
     private final Map<String, Boolean> sideloadedCache = new HashMap<>();
     private long sideloadedCacheAt = 0;
 
@@ -159,7 +162,8 @@ public class BlockerService extends AccessibilityService {
 
         // 1b. Any browser, including ones installed after the rules were set
         if (rules.allBrowsersBlocked()
-                && (browserPackages().contains(pkg) || WEB_APP_PKGS.contains(pkg))) {
+                && (browserPackages().contains(pkg) || WEB_APP_PKGS.contains(pkg)
+                    || isNamedLikeBrowser(pkg))) {
             block(appLabel(pkg) + " is blocked (all browsers are).");
             return;
         }
@@ -174,6 +178,22 @@ public class BlockerService extends AccessibilityService {
         if (rules.sideloadBlocked() && isNewSideloadedApp(pkg)) {
             block(appLabel(pkg) + " was installed from a file, not an app store, so it's blocked.");
             return;
+        }
+
+        // 1e. Apps that act as a browser without telling Android: a web page on screen plus an
+        // address bar. Checked in any non-system app, at most once a second per app.
+        if (rules.allBrowsersBlocked() && !isSystemApp(pkg)) {
+            long now = SystemClock.uptimeMillis();
+            Long last = lastDeepScan.get(pkg);
+            if (last == null || now - last >= 1000) {
+                lastDeepScan.put(pkg, now);
+                AccessibilityNodeInfo r = getRootInActiveWindow();
+                if (r != null && r.getPackageName() != null
+                        && pkg.equals(r.getPackageName().toString()) && looksLikeBrowserScreen(r)) {
+                    block(appLabel(pkg) + " works as a browser, and all browsers are blocked.");
+                    return;
+                }
+            }
         }
 
         // Content-change events fire constantly; scan each app at most every 400 ms.
@@ -458,6 +478,83 @@ public class BlockerService extends AccessibilityService {
     }
 
     /** Third-party Reddit apps (Infinity, Boost, RedReader, Sync...), by package name or label. */
+    /** Apps that call themselves a browser ("Web Browser", "Swift Browser"...). */
+    private boolean isNamedLikeBrowser(String pkg) {
+        Boolean cached = browserNameCache.get(pkg);
+        if (cached != null) return cached;
+        String id = pkg.toLowerCase(Locale.ROOT);
+        String label = appLabel(pkg).toLowerCase(Locale.ROOT);
+        boolean r = id.contains("browser") || label.contains("browser") || label.contains("browse ")
+                || id.contains("webbrowser") || label.contains("web surf");
+        browserNameCache.put(pkg, r);
+        return r;
+    }
+
+    private boolean isSystemApp(String pkg) {
+        Boolean cached = systemAppCache.get(pkg);
+        if (cached != null) return cached;
+        boolean r;
+        try {
+            ApplicationInfo ai = getPackageManager().getApplicationInfo(pkg, 0);
+            r = (ai.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0;
+        } catch (Exception e) {
+            r = true; // unknown: don't scan it
+        }
+        systemAppCache.put(pkg, r);
+        return r;
+    }
+
+    private static final java.util.regex.Pattern URL_LIKE = java.util.regex.Pattern.compile(
+            "^(https?://)?([a-z0-9-]+\\.)+[a-z]{2,}(:[0-9]+)?(/\\S*)?$");
+
+    /** A web page (WebView or GeckoView) on screen together with something that looks like an address bar. */
+    private static boolean looksLikeBrowserScreen(AccessibilityNodeInfo root) {
+        boolean webPage = false;
+        boolean addressBar = false;
+        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
+        q.add(root);
+        int seen = 0;
+        while (!q.isEmpty() && seen < 600) {
+            AccessibilityNodeInfo n = q.poll();
+            seen++;
+            if (n == null) continue;
+            CharSequence cls = n.getClassName();
+            String c = cls == null ? "" : cls.toString();
+            if (c.contains("WebView") || c.contains("GeckoView")) webPage = true;
+            if (!addressBar && isAddressBar(n, c)) addressBar = true;
+            if (webPage && addressBar) return true;
+            for (int i = 0; i < n.getChildCount(); i++) {
+                AccessibilityNodeInfo ch = n.getChild(i);
+                if (ch != null) q.add(ch);
+            }
+        }
+        return false;
+    }
+
+    private static boolean isAddressBar(AccessibilityNodeInfo n, String cls) {
+        String id = n.getViewIdResourceName();
+        if (id != null) {
+            String i = id.toLowerCase(Locale.ROOT);
+            if (i.contains("url") || i.contains("omnibar") || i.contains("address")
+                    || i.contains("location_bar") || i.contains("search_box_url")) return true;
+        }
+        if (!cls.endsWith("EditText")) return false;
+        CharSequence t = n.getText();
+        if (t != null) {
+            String s = t.toString().trim().toLowerCase(Locale.ROOT);
+            if (!s.contains(" ") && !s.contains("@") && URL_LIKE.matcher(s).matches()) return true;
+        }
+        if (Build.VERSION.SDK_INT >= 26) {
+            CharSequence h = n.getHintText();
+            if (h != null) {
+                String hint = h.toString().toLowerCase(Locale.ROOT);
+                if (hint.contains("url") || hint.contains("web address") || hint.contains("search or type")
+                        || hint.contains("type address") || hint.contains("enter address")) return true;
+            }
+        }
+        return false;
+    }
+
     private boolean isRedditClient(String pkg) {
         if (pkg.equals(OFFICIAL_REDDIT)) return false; // handled by the normal app list
         Boolean cached = redditClientCache.get(pkg);
