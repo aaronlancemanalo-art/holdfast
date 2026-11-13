@@ -180,18 +180,21 @@ public class BlockerService extends AccessibilityService {
             return;
         }
 
-        // 1e. Apps that act as a browser without telling Android: a web page on screen plus an
-        // address bar. Checked in any non-system app, at most once a second per app.
-        if (rules.allBrowsersBlocked() && !isSystemApp(pkg)) {
+        // 1e. Blocked sites inside any app's built-in web viewer (Instagram links, unnamed browser
+        // apps...). Other pages load normally; only a blocked site on screen closes it.
+        if (!isSystemApp(pkg) && !rules.getSites().isEmpty()) {
             long now = SystemClock.uptimeMillis();
             Long last = lastDeepScan.get(pkg);
             if (last == null || now - last >= 1000) {
                 lastDeepScan.put(pkg, now);
                 AccessibilityNodeInfo r = getRootInActiveWindow();
                 if (r != null && r.getPackageName() != null
-                        && pkg.equals(r.getPackageName().toString()) && looksLikeBrowserScreen(r)) {
-                    block(appLabel(pkg) + " works as a browser, and all browsers are blocked.");
-                    return;
+                        && pkg.equals(r.getPackageName().toString())) {
+                    String hit = blockedSiteInWebViewer(r, rules.getSites());
+                    if (hit != null) {
+                        block(hit + " is blocked, in every app.");
+                        return;
+                    }
                 }
             }
         }
@@ -506,6 +509,49 @@ public class BlockerService extends AccessibilityService {
 
     private static final java.util.regex.Pattern URL_LIKE = java.util.regex.Pattern.compile(
             "^(https?://)?([a-z0-9-]+\\.)+[a-z]{2,}(:[0-9]+)?(/\\S*)?$");
+
+    /**
+     * A web page (WebView or GeckoView) on screen whose address bar or title strip shows a
+     * blocked site. Returns the site, or null. Ordinary pages are left alone.
+     */
+    private static String blockedSiteInWebViewer(AccessibilityNodeInfo root, Set<String> sites) {
+        boolean webPage = false;
+        String hit = null;
+        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
+        q.add(root);
+        int seen = 0;
+        while (!q.isEmpty() && seen < 600) {
+            AccessibilityNodeInfo n = q.poll();
+            seen++;
+            if (n == null) continue;
+            CharSequence cls = n.getClassName();
+            String c = cls == null ? "" : cls.toString();
+            if (c.contains("WebView") || c.contains("GeckoView")) webPage = true;
+            if (hit == null) {
+                CharSequence t = n.getText();
+                if (t != null) {
+                    String s = t.toString().trim().toLowerCase(Locale.ROOT);
+                    // Only short, link-like text (an address bar or a domain header), not chat
+                    // messages or posts that happen to mention a site.
+                    if (s.length() <= 120 && !s.contains(" ") && !s.contains("@")
+                            && (URL_LIKE.matcher(s).matches() || isAddressBar(n, c))) {
+                        for (String site : sites) {
+                            if (!site.isEmpty() && s.contains(site)) {
+                                hit = site;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (webPage && hit != null) return hit;
+            for (int i = 0; i < n.getChildCount(); i++) {
+                AccessibilityNodeInfo ch = n.getChild(i);
+                if (ch != null) q.add(ch);
+            }
+        }
+        return null;
+    }
 
     /** A web page (WebView or GeckoView) on screen together with something that looks like an address bar. */
     private static boolean looksLikeBrowserScreen(AccessibilityNodeInfo root) {
