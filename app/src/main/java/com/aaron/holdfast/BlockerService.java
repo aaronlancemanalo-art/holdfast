@@ -63,6 +63,11 @@ public class BlockerService extends AccessibilityService {
             "com.startpage.app",                         // Startpage
             "ai.perplexity.app.android"));               // Perplexity
 
+    private static final String GEMINI_PKG = "com.google.android.apps.bard";
+    private static final String GOOGLE_APP_PKG = "com.google.android.googlequicksearchbox";
+    /** Whether the Google app's current screen is Gemini, updated on every screen change. */
+    private boolean geminiInFront = false;
+
     /** Where the power menu (with its Safe mode option) lives. */
     private static final Set<String> SYSTEM_UI_PKGS = new HashSet<>(Arrays.asList(
             "com.android.systemui",
@@ -159,6 +164,12 @@ public class BlockerService extends AccessibilityService {
             block(appLabel(pkg) + " is blocked.");
             return;
         }
+
+        // 1a. Gemini isn't a browser. Its app is a launcher for screens that run inside the Google
+        // app, so let the Google app through only while it is showing Gemini. Google search and
+        // web pages in the Google app stay blocked.
+        if (GEMINI_PKG.equals(pkg)) return;
+        if (GOOGLE_APP_PKG.equals(pkg) && isGeminiScreen(event)) return;
 
         // 1b. Any browser, including ones installed after the rules were set
         if (rules.allBrowsersBlocked()
@@ -481,6 +492,47 @@ public class BlockerService extends AccessibilityService {
     }
 
     /** Third-party Reddit apps (Infinity, Boost, RedReader, Sync...), by package name or label. */
+    /**
+     * True while the Google app is showing Gemini. Decided when its screen changes: Gemini's own
+     * screens (class names with robin/gemini/bard) or a screen whose input says "Ask Gemini" or
+     * whose title is exactly "Gemini". Anything else (search, a web page) counts as not Gemini.
+     */
+    private boolean isGeminiScreen(AccessibilityEvent event) {
+        if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return geminiInFront;
+        CharSequence cls = event.getClassName();
+        String c = cls == null ? "" : cls.toString().toLowerCase(Locale.ROOT);
+        boolean g = c.contains("robin") || c.contains("gemini") || c.contains("bard");
+        if (!g) {
+            AccessibilityNodeInfo r = getRootInActiveWindow();
+            if (r != null && r.getPackageName() != null
+                    && GOOGLE_APP_PKG.equals(r.getPackageName().toString())) {
+                g = treeHasExactText(r, "gemini") || treeHintContains(r, "ask gemini")
+                        || treeContains(r, "ask gemini");
+            }
+        }
+        geminiInFront = g;
+        return g;
+    }
+
+    private static boolean treeHintContains(AccessibilityNodeInfo root, String needle) {
+        if (Build.VERSION.SDK_INT < 26) return false;
+        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
+        q.add(root);
+        int seen = 0;
+        while (!q.isEmpty() && seen < MAX_NODES) {
+            AccessibilityNodeInfo n = q.poll();
+            seen++;
+            if (n == null) continue;
+            CharSequence h = n.getHintText();
+            if (h != null && h.toString().toLowerCase(Locale.ROOT).contains(needle)) return true;
+            for (int i = 0; i < n.getChildCount(); i++) {
+                AccessibilityNodeInfo ch = n.getChild(i);
+                if (ch != null) q.add(ch);
+            }
+        }
+        return false;
+    }
+
     /** Apps that call themselves a browser ("Web Browser", "Swift Browser"...). */
     private boolean isNamedLikeBrowser(String pkg) {
         Boolean cached = browserNameCache.get(pkg);
