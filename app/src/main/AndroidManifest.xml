@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Lets Holdfast check where any app was installed from -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- Asks to be left out of battery saving, so Samsung can't put the blocker to sleep -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Lets the "Block an app" picker see installed apps on Android 11+ -->
     <queries>

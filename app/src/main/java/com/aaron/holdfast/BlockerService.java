@@ -63,6 +63,18 @@ public class BlockerService extends AccessibilityService {
             "com.startpage.app",                         // Startpage
             "ai.perplexity.app.android"));               // Perplexity
 
+    /** Never deep-scanned for web pages: home screen, system UI, keyboards, Settings, installers. */
+    private static final Set<String> NO_SCAN_PKGS = new HashSet<>(Arrays.asList(
+            "com.sec.android.app.launcher",
+            "com.android.systemui",
+            "com.samsung.android.globalactions",
+            "com.samsung.android.honeyboard",
+            "com.google.android.inputmethod.latin",
+            "com.android.settings",
+            "com.google.android.packageinstaller",
+            "com.android.packageinstaller",
+            "com.samsung.android.packageinstaller"));
+
     private static final String GEMINI_PKG = "com.google.android.apps.bard";
     private static final String GOOGLE_APP_PKG = "com.google.android.googlequicksearchbox";
     /** Whether the Google app's current screen is Gemini, updated on every screen change. */
@@ -159,6 +171,19 @@ public class BlockerService extends AccessibilityService {
         // package name AND when signed with Holdfast's key, so nothing else can pose as it.
         if (isTrustedOwnApp(pkg)) return;
 
+        // 0b. Apps that aren't installed in the main profile (Secure Folder-only apps, instant
+        // apps) can't be checked like normal apps, so they don't open while protection is on.
+        if (rules.isGuardOn()
+                && event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+                && !"android".equals(pkg) && !isInstalledHere(pkg)) {
+            AccessibilityNodeInfo r = getRootInActiveWindow();
+            if (r != null && r.getPackageName() != null && pkg.equals(r.getPackageName().toString())) {
+                block("This app runs outside your main profile (Secure Folder or an instant app), "
+                        + "so it's blocked while tamper protection is on.");
+                return;
+            }
+        }
+
         // 1. Blocked apps
         if (rules.getApps().contains(pkg)) {
             block(appLabel(pkg) + " is blocked.");
@@ -169,7 +194,24 @@ public class BlockerService extends AccessibilityService {
         // app, so let the Google app through only while it is showing Gemini. Google search and
         // web pages in the Google app stay blocked.
         if (GEMINI_PKG.equals(pkg)) return;
-        if (GOOGLE_APP_PKG.equals(pkg) && isGeminiScreen(event)) return;
+        if (GOOGLE_APP_PKG.equals(pkg) && isGeminiScreen(event)) {
+            // Even inside Gemini, a web page with an address bar (or a blocked site) means the
+            // Google app is being used as a browser, so it closes.
+            long now = SystemClock.uptimeMillis();
+            Long last = lastDeepScan.get(pkg);
+            if (last == null || now - last >= 1000) {
+                lastDeepScan.put(pkg, now);
+                AccessibilityNodeInfo r = getRootInActiveWindow();
+                if (r != null && r.getPackageName() != null
+                        && pkg.equals(r.getPackageName().toString())
+                        && (looksLikeBrowserScreen(r)
+                            || blockedSiteInWebViewer(r, rules.getSites()) != null)) {
+                    geminiInFront = false;
+                    block("Web pages in the Google app are blocked (Gemini itself is fine).");
+                }
+            }
+            return;
+        }
 
         // 1b. Any browser, including ones installed after the rules were set
         if (rules.allBrowsersBlocked()
@@ -193,7 +235,7 @@ public class BlockerService extends AccessibilityService {
 
         // 1e. Blocked sites inside any app's built-in web viewer (Instagram links, unnamed browser
         // apps...). Other pages load normally; only a blocked site on screen closes it.
-        if (!isSystemApp(pkg) && !rules.getSites().isEmpty()) {
+        if (!NO_SCAN_PKGS.contains(pkg) && !rules.getSites().isEmpty()) {
             long now = SystemClock.uptimeMillis();
             Long last = lastDeepScan.get(pkg);
             if (last == null || now - last >= 1000) {
@@ -387,7 +429,12 @@ public class BlockerService extends AccessibilityService {
             "deactivate this",       // device admin detail
             "sleeping apps",         // battery: sleeping / deep sleeping lists
             "unrestricted",          // per-app battery page
-            "allow restricted settings"};
+            "allow restricted settings",
+            "volume up",             // accessibility shortcut on the volume keys
+            "volume down",
+            "side and volume",
+            "accessibility button",  // on-screen accessibility button
+            "shortcut"};
 
     /**
      * A Settings screen about Holdfast that has controls to stop it (its App info page, its
@@ -506,8 +553,7 @@ public class BlockerService extends AccessibilityService {
             AccessibilityNodeInfo r = getRootInActiveWindow();
             if (r != null && r.getPackageName() != null
                     && GOOGLE_APP_PKG.equals(r.getPackageName().toString())) {
-                g = treeHasExactText(r, "gemini") || treeHintContains(r, "ask gemini")
-                        || treeContains(r, "ask gemini");
+                g = treeHintContains(r, "ask gemini") || treeContains(r, "ask gemini");
             }
         }
         geminiInFront = g;
@@ -542,6 +588,31 @@ public class BlockerService extends AccessibilityService {
         boolean r = id.contains("browser") || label.contains("browser") || label.contains("browse ")
                 || id.contains("webbrowser") || label.contains("web surf");
         browserNameCache.put(pkg, r);
+        return r;
+    }
+
+    private final Map<String, Boolean> installedCache = new HashMap<>();
+    private long installedCacheAt = 0;
+
+    /** True if the app is installed in this (main) profile. */
+    private boolean isInstalledHere(String pkg) {
+        long now = SystemClock.uptimeMillis();
+        if (now - installedCacheAt > 60_000) {
+            installedCache.clear();
+            installedCacheAt = now;
+        }
+        Boolean cached = installedCache.get(pkg);
+        if (cached != null) return cached;
+        boolean r;
+        try {
+            getPackageManager().getPackageInfo(pkg, 0);
+            r = true;
+        } catch (PackageManager.NameNotFoundException e) {
+            r = false;
+        } catch (Exception e) {
+            r = true; // unsure: don't block
+        }
+        installedCache.put(pkg, r);
         return r;
     }
 

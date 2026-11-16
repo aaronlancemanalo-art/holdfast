@@ -22,6 +22,7 @@ import android.os.SystemClock;
 import android.content.pm.ResolveInfo;
 import android.graphics.Typeface;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
@@ -178,6 +179,23 @@ public class MainActivity extends Activity {
         } else {
             root.addView(text("Uninstall protection: OFF", 16));
             root.addView(button("Activate uninstall protection", v -> activateAdmin()));
+        }
+
+        PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
+        if (power != null && !power.isIgnoringBatteryOptimizations(getPackageName())) {
+            TextView w = text("Battery: Samsung can put Holdfast to sleep, which silently stops all "
+                    + "blocking. Tap below and choose Allow.", 15);
+            w.setTextColor(0xFFFF6B6B);
+            root.addView(w);
+            root.addView(button("Let Holdfast always run", v -> {
+                try {
+                    startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:" + getPackageName())));
+                } catch (Exception ignored) {
+                }
+            }));
+        } else {
+            root.addView(text("Battery: always allowed to run", 16));
         }
 
         String err = rules.lastError();
