@@ -75,6 +75,18 @@ public class BlockerService extends AccessibilityService {
             "com.android.packageinstaller",
             "com.samsung.android.packageinstaller"));
 
+    private static final String CLAUDE_PKG = "com.anthropic.claude";
+    /** Browsers that show link tabs for other apps (custom tabs). */
+    private static final Set<String> TAB_BROWSERS = new HashSet<>(Arrays.asList(
+            "com.android.chrome", "com.chrome.beta", "com.sec.android.app.sbrowser"));
+    private static final Set<String> TRACK_IGNORE_PKGS = new HashSet<>(Arrays.asList(
+            "com.android.systemui", "com.samsung.android.globalactions",
+            "com.samsung.android.honeyboard", "com.google.android.inputmethod.latin"));
+    /** Last real app in front (not a browser, system UI, keyboard or Holdfast). */
+    private String lastApp = "";
+    /** True while a browser is showing a link tab opened from the Claude app. */
+    private boolean claudeTabOpen = false;
+
     private static final String GEMINI_PKG = "com.google.android.apps.bard";
     private static final String GOOGLE_APP_PKG = "com.google.android.googlequicksearchbox";
     /** Whether the Google app's current screen is Gemini, updated on every screen change. */
@@ -184,8 +196,14 @@ public class BlockerService extends AccessibilityService {
             }
         }
 
+        // Links opened from the Claude app load in a browser "custom tab" (no address bar to type
+        // in). Those tabs are allowed; every other browser screen stays blocked, and the site
+        // checks further down still apply inside them.
+        trackForegroundApp(event, pkg);
+        boolean claudeTab = isClaudeLinkTab(event, pkg);
+
         // 1. Blocked apps
-        if (rules.getApps().contains(pkg)) {
+        if (rules.getApps().contains(pkg) && !claudeTab) {
             block(appLabel(pkg) + " is blocked.");
             return;
         }
@@ -214,7 +232,7 @@ public class BlockerService extends AccessibilityService {
         }
 
         // 1b. Any browser, including ones installed after the rules were set
-        if (rules.allBrowsersBlocked()
+        if (!claudeTab && rules.allBrowsersBlocked()
                 && (browserPackages().contains(pkg) || WEB_APP_PKGS.contains(pkg)
                     || isNamedLikeBrowser(pkg))) {
             block(appLabel(pkg) + " is blocked (all browsers are).");
@@ -577,6 +595,40 @@ public class BlockerService extends AccessibilityService {
             }
         }
         return false;
+    }
+
+    /** Remembers which app the user came from, so a browser tab can be traced back to Claude. */
+    private void trackForegroundApp(AccessibilityEvent event, String pkg) {
+        if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
+        // The home screen and recents DO count as leaving Claude; only overlays don't.
+        if (TAB_BROWSERS.contains(pkg) || TRACK_IGNORE_PKGS.contains(pkg)) return;
+        AccessibilityNodeInfo r = getRootInActiveWindow();
+        if (r == null || r.getPackageName() == null || !pkg.equals(r.getPackageName().toString())) return;
+        if (!pkg.equals(lastApp)) {
+            lastApp = pkg;
+            if (!CLAUDE_PKG.equals(pkg)) claudeTabOpen = false;
+        }
+    }
+
+    /**
+     * True while a browser shows a link tab opened from the Claude app. Decided on each screen
+     * change: a custom tab right after Claude counts; the browser's full window ("Open in
+     * Chrome", its own tabs) or a tab opened from any other app does not.
+     */
+    private boolean isClaudeLinkTab(AccessibilityEvent event, String pkg) {
+        if (!TAB_BROWSERS.contains(pkg)) return false;
+        if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return claudeTabOpen;
+        CharSequence cls = event.getClassName();
+        String c = cls == null ? "" : cls.toString().toLowerCase(Locale.ROOT);
+        boolean fromClaude = CLAUDE_PKG.equals(lastApp);
+        if (c.contains("customtab")) {
+            claudeTabOpen = fromClaude || claudeTabOpen;
+        } else if (c.contains("tabbed") || c.contains("main") || c.contains("browseractivity")) {
+            claudeTabOpen = false; // the full browser
+        } else if (fromClaude) {
+            claudeTabOpen = true;  // a launcher/trampoline step on the way to the tab
+        }
+        return claudeTabOpen;
     }
 
     /** Apps that call themselves a browser ("Web Browser", "Swift Browser"...). */
