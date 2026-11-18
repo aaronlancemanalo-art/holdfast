@@ -198,6 +198,18 @@ public class MainActivity extends Activity {
             root.addView(text("Battery: always allowed to run", 16));
         }
 
+        boolean english = true;
+        try {
+            english = "en".equals(getResources().getConfiguration().getLocales().get(0).getLanguage());
+        } catch (Exception ignored) {
+        }
+        if (!english) {
+            TextView w = text("Phone language isn't English. Until it's switched back, every Settings page "
+                    + "that mentions Holdfast and every app installer screen is closed.", 15);
+            w.setTextColor(0xFFFF6B6B);
+            root.addView(w);
+        }
+
         String err = rules.lastError();
         if (err != null) {
             TextView e = text("Last error: " + err, 12);
@@ -245,7 +257,8 @@ public class MainActivity extends Activity {
         if (rules.allBrowsersBlocked()) {
             root.addView(text("ON: every browser is blocked, including ones you install later, plus search "
                     + "apps with built-in web viewers (Google, Google Go, Bing...). "
-                    + "Other Reddit apps are blocked while reddit.com is.", 14));
+                    + "Other Reddit apps are blocked while reddit.com is, and so is Reddit under other web "
+                    + "addresses.", 14));
             if (!rules.isPending(Rules.TYPE_BROWSERS, "")) {
                 root.addView(button("Allow browsers (24h)",
                         v -> confirmRemoval(Rules.TYPE_BROWSERS, "", "all browsers")));
@@ -279,7 +292,9 @@ public class MainActivity extends Activity {
         // ----- guard -----
         header("Tamper protection");
         TextView g = text(rules.isGuardOn()
-                ? "ON: Holdfast's Settings pages, its uninstall dialog, Developer options and Safe mode are blocked."
+                ? "ON: Holdfast's Settings pages and its uninstall dialog are blocked. So are the phone settings "
+                        + "that could switch it off: Developer options, Safe mode, settings resets, Maintenance mode, "
+                        + "app pinning, the sleeping-app lists, the power saving options and the phone language."
                 : "OFF: Holdfast can be disabled or uninstalled.", 14);
         root.addView(g);
         if (rules.isGuardOn()) {

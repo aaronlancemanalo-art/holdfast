@@ -161,9 +161,32 @@ public final class Rules {
     }
 
     public synchronized void blockSideload() {
-        if (!sideloadBlocked()) p.edit().putLong("sideloadSince", System.currentTimeMillis()).apply();
+        if (!sideloadBlocked()) {
+            // Whatever is installed at this moment stays allowed: the saved list is made again.
+            p.edit().putLong("sideloadSince", System.currentTimeMillis())
+                    .putBoolean("sideloadOkInit", false).apply();
+        }
         p.edit().putBoolean("noSideload", true).apply();
         cancelPending(TYPE_SIDELOAD, "");
+    }
+
+    /** True once the list of older file-installed apps has been saved. */
+    public boolean sideloadListReady() {
+        return p.getBoolean("sideloadOkInit", false);
+    }
+
+    /**
+     * Apps installed from files before the rule began, as "package|install time". They keep
+     * working; any other app that didn't come from an app store doesn't open. A saved list
+     * (instead of comparing dates) means the phone's clock has no say in it.
+     */
+    public Set<String> sideloadAllowed() {
+        return new HashSet<>(p.getStringSet("sideloadOk", new HashSet<String>()));
+    }
+
+    public void setSideloadAllowed(Set<String> apps) {
+        p.edit().putStringSet("sideloadOk", new HashSet<>(apps))
+                .putBoolean("sideloadOkInit", true).apply();
     }
 
     public synchronized void blockAllBrowsers() {

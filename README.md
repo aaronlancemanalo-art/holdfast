@@ -25,6 +25,18 @@ Do 3 before 4: once the blocker is on, Settings pages showing "Holdfast" get blo
 - Add apps/sites inside the app: instant.
 - Change defaults or behaviour: edit `Rules.java` / `BlockerService.java`, push, install the new APK.
 
+## What tamper protection covers
+
+While it is on, these close as soon as they open: Holdfast's own Settings pages and uninstall dialog, Developer options, the Safe mode button in the power menu, the two settings-reset pages, Maintenance mode, the app-pinning page, the sleeping-app lists, the power saving options page and the phone language page. If an app is already pinned when something needs blocking, Holdfast locks the screen instead (unpin the app or restart the phone). The checks read Settings in English; in any other phone language every Settings page that mentions Holdfast and every installer screen is closed.
+
+Reddit is recognised by its address, by the titles its pages use and by its links, so it is also closed inside viewers that show no address and under other web addresses. Reddit apps are recognised by name and by being the app that opens Reddit links.
+
+## Testing a change without the phone
+
+`tools/sim/run.sh` runs the real `BlockerService` and `Rules` code on a plain JVM against small stand-in Android classes: fake screens, a fake clock and a fake list of installed apps. `Checks` covers the page and address rules one by one; `Scenarios` plays whole sequences (opening a blocked app, a link tab from Claude, Gemini, Settings pages, the installer, web pages inside apps) and checks what Holdfast did. Add a case there for every rule you change.
+
+    ANDROID_JAR=/path/to/android-34/android.jar tools/sim/run.sh
+
 ## Known escape hatches
 
 Safe Mode (disables third-party apps), factory reset, ADB from a PC. It raises friction, it doesn't make bypass impossible.
