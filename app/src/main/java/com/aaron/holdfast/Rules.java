@@ -35,6 +35,7 @@ public final class Rules {
     public static final String TYPE_GUARD = "guard";
     public static final String TYPE_BROWSERS = "browsers";
     public static final String TYPE_SIDELOAD = "sideload";
+    public static final String TYPE_MATURE = "mature";
 
     private static final String PREFS = "rules";
     private static final long TICK_MIN_MS = 5000;
@@ -80,6 +81,8 @@ public final class Rules {
         // Apps installed after this moment must come from an app store. Older apps are left alone.
         // For phones that already had the rule, use the day it shipped (build 8, 29 Oct 2026).
         if (!p.contains("sideloadSince")) p.edit().putLong("sideloadSince", 1793271600000L).apply();
+        // Added in build 32: wherever Reddit is allowed, mature (NSFW) content on it is not.
+        if (!p.contains("noMature")) p.edit().putBoolean("noMature", true).apply();
     }
 
     // ---------- reads ----------
@@ -112,6 +115,11 @@ public final class Rules {
     /** Blocks every installed browser, including ones installed later. */
     public boolean allBrowsersBlocked() {
         return p.getBoolean("allBrowsers", true);
+    }
+
+    /** Reddit closes when something marked mature (NSFW, 18+) is on screen. Only matters where Reddit is allowed. */
+    public boolean matureBlocked() {
+        return p.getBoolean("noMature", true);
     }
 
     public List<Pending> getPending() {
@@ -194,6 +202,11 @@ public final class Rules {
         cancelPending(TYPE_BROWSERS, "");
     }
 
+    public synchronized void blockMature() {
+        p.edit().putBoolean("noMature", true).apply();
+        cancelPending(TYPE_MATURE, "");
+    }
+
     /** Cancelling a pending loosening is itself a tightening, so it is instant. */
     public synchronized void cancelPending(int index) {
         JSONArray arr = pendingArray();
@@ -253,6 +266,7 @@ public final class Rules {
         boolean guard = isGuardOn();
         boolean browsers = allBrowsersBlocked();
         boolean sideload = sideloadBlocked();
+        boolean mature = matureBlocked();
         JSONArray keep = new JSONArray();
 
         for (int i = 0; i < arr.length(); i++) {
@@ -267,6 +281,7 @@ public final class Rules {
                 else if (TYPE_GUARD.equals(type)) guard = false;
                 else if (TYPE_BROWSERS.equals(type)) browsers = false;
                 else if (TYPE_SIDELOAD.equals(type)) sideload = false;
+                else if (TYPE_MATURE.equals(type)) mature = false;
             } else {
                 try {
                     o.put("rem", rem);
@@ -282,6 +297,7 @@ public final class Rules {
                 .putBoolean("guard", guard)
                 .putBoolean("allBrowsers", browsers)
                 .putBoolean("noSideload", sideload)
+                .putBoolean("noMature", mature)
                 .putString("pending", keep.toString());
         stampClock(e);
         e.apply();

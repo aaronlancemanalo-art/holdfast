@@ -526,6 +526,107 @@ public class Scenarios {
         eq("install rule back on: new one blocked", did(), "HOME|AfterOn was installed from a file, not an app store, so it's blocked.");
         noError("rules off");
 
+        // ---- Reddit allowed, mature content not ----
+        fresh();
+        Node feed = page("Home", "Popular", "r/aquariums", "My new tank after three months", "245 upvotes");
+        win(REDDIT, "MainActivity", feed);
+        eq("reddit still blocked by default", did(), "HOME|Reddit is blocked.");
+        Sim.advance(3000); did();
+        // the app has been unblocked through its 24 hours; the sites stay blocked
+        Context.prefs.get("rules").putStringSet("apps", new HashSet<>(Arrays.asList(CHROME)));
+        win(REDDIT, "MainActivity", page("Home", "Popular", "r/aquariums", "My new tank after three months", "245 upvotes"));
+        Sim.advance(3000);
+        content(REDDIT, page("r/Fallout", "Mod list question", "i.redd.it", "12 comments"));
+        Sim.advance(3000);
+        eq("reddit app open on ordinary posts", did(), "");
+        // an ad's web view next to Reddit's own address must not close the app
+        content(REDDIT, view(tv("i.redd.it"), tv("reddit.com"), web("Sponsored", wv("Buy now")), tv("A post title")));
+        Sim.advance(3000);
+        eq("reddit app with its own address and a web view", did(), "");
+        content(REDDIT, page("r/pics", "A normal title", "NSFW", "A marked post"));
+        eq("marked post closes reddit", did(), "BACK,HOME|Mature (NSFW) content on Reddit is blocked.");
+        Sim.advance(3000); did();
+        win(REDDIT, "SettingsActivity", page("Settings", "View options", "Show mature content (I'm over 18)", "Blur mature (18+) images and media"));
+        eq("the setting for mature content closes reddit", did(), "BACK,HOME|Mature (NSFW) content on Reddit is blocked.");
+        Sim.advance(3000); did();
+        win(REDDIT, "MainActivity", page("r/whatever", "This community contains adult content", "Are you over 18?", "Cancel", "Continue"));
+        eq("age gate closes reddit", did(), "BACK,HOME|Mature (NSFW) content on Reddit is blocked.");
+        Sim.advance(3000); did();
+        // marked content that appears a moment after the screen, with no further events
+        Node later = page("r/all", "Loading");
+        win(REDDIT, "MainActivity", later);
+        eq("reddit loading", did(), "");
+        later.add(tv("NSFW"));
+        Sim.advance(400);
+        eq("marked post that appears late", did(), "BACK,HOME|Mature (NSFW) content on Reddit is blocked.");
+        Sim.advance(3000); did();
+        // other Reddit apps and Reddit on the web are still blocked while the sites are
+        win("com.example.snoo", "Main", view());
+        eq("other reddit app still blocked", did(), "HOME|Snoo Reader is a Reddit app, and Reddit is blocked.");
+        Sim.advance(3000); did();
+        win(CLAUDE, "MainActivity", view(tv("Chat")));
+        win(CHROME, TAB, chromeTab("reddit.com/r/aquariums", "r/aquariums"));
+        starts("reddit on the web still blocked", did(), "HOME|reddit.com is blocked");
+        Sim.advance(3000); did();
+        // the rule switched off (after its own 24 hours)
+        Context.prefs.get("rules").putBoolean("noMature", false);
+        win(REDDIT, "MainActivity", page("r/pics", "NSFW", "A marked post"));
+        Sim.advance(3000);
+        eq("mature rule off", did(), "");
+        Context.prefs.get("rules").putBoolean("noMature", true);
+        noError("reddit app");
+
+        // ---- Reddit sites unblocked too: the web and other Reddit apps get the same filter ----
+        fresh();
+        Context.prefs.get("rules").putStringSet("apps", new HashSet<>(Arrays.asList(CHROME)));
+        Context.prefs.get("rules").putStringSet("sites", new HashSet<String>());
+        win(CLAUDE, "MainActivity", view(tv("Chat")));
+        win(CHROME, TAB, view(tv("reddit.com/r/aquariums").id("com.android.chrome:id/url_bar"), web("r/aquariums", wv("My new tank"), wv("245 upvotes"))));
+        Sim.advance(3000);
+        eq("web reddit, ordinary page", did(), "");
+        content(CHROME, view(tv("reddit.com/r/x").id("com.android.chrome:id/url_bar"), web("r/x", wv("Mature Content"), wv("You must be 18+ to view this community"))));
+        eq("web reddit, age gate", did(), "BACK,HOME|Mature (NSFW) content on Reddit is blocked.");
+        Sim.advance(3000); did();
+        win(CLAUDE, "MainActivity", view(tv("Chat")));
+        win(CHROME, TAB, view(tv("example.com").id("com.android.chrome:id/url_bar"), web("News", wv("NSFW"), wv("An article that uses the word"))));
+        Sim.advance(3000);
+        eq("another site that says nsfw", did(), "");
+        win("com.example.snoo", "Main", page("r/aquariums", "My new tank"));
+        Sim.advance(3000);
+        eq("other reddit app allowed once the site is", did(), "");
+        content("com.example.snoo", page("r/pics", "NSFW", "A marked post"));
+        eq("other reddit app, marked post", did(), "BACK,HOME|Mature (NSFW) content on Reddit is blocked.");
+        Sim.advance(3000); did();
+        win(MSGR, "BrowserLiteActivity", view(tv("old.reddit.com"), web("pics", wv("NSFW"), wv("a post"))));
+        eq("reddit in an in-app viewer, marked post", did(), "BACK,HOME|Mature (NSFW) content on Reddit is blocked.");
+        noError("reddit sites off");
+
+        // ---- the mature-content rule follows the same 24-hour wait as every other rule ----
+        fresh();
+        Rules rr = new Rules(svc);
+        rr.requestRemoval(Rules.TYPE_MATURE, "");
+        eq("mature rule: waiting", rr.isPending(Rules.TYPE_MATURE, ""), true);
+        eq("mature rule: still on during the wait", rr.matureBlocked(), true);
+        Sim.advance(23L * 3600 * 1000);
+        rr.tick();
+        eq("mature rule: still on at 23 hours", rr.matureBlocked(), true);
+        Sim.advance(2L * 3600 * 1000);
+        rr.tick();
+        eq("mature rule: off after 24 hours", rr.matureBlocked(), false);
+        rr.blockMature();
+        eq("mature rule: back on at once", rr.matureBlocked(), true);
+        rr.requestRemoval(Rules.TYPE_APP, REDDIT);
+        Sim.advance(25L * 3600 * 1000);
+        rr.tick();
+        eq("reddit app unblocked after its own wait", rr.getApps().contains(REDDIT), false);
+        eq("mature rule untouched by that", rr.matureBlocked(), true);
+        win(REDDIT, "MainActivity", page("Home", "r/aquariums", "My new tank"));
+        Sim.advance(3000);
+        eq("reddit opens after the wait", did(), "");
+        content(REDDIT, page("r/pics", "NSFW"));
+        eq("and the filter is already there", did(), "BACK,HOME|Mature (NSFW) content on Reddit is blocked.");
+        noError("mature rule wait");
+
         // ---- odds and ends ----
         fresh();
         svc.pm.ledgerSigned = false;

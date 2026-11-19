@@ -139,6 +139,35 @@ public class Checks {
         eq("non-english holdfast", BlockerService.settingsPageRule(screen("Holdfast", "Naka-on"), false, false, false) != null, true);
         eq("non-english other", BlockerService.settingsPageRule(screen("Mga setting", "Baterya"), false, false, false), null);
 
+        // ---------- mature content on Reddit ----------
+        String[][] matureYes = {
+                {"NSFW"}, {"nsfw"}, {"18+"}, {"NSFW \u2022 Spoiler"}, {"NSFW Spoiler"},
+                {"r/pics, 5 hours ago, NSFW, A title here, 120 upvotes"},
+                {"Posted by u/someone. 3h. NSFW. Title of the post"},
+                {"r/aww - NSFW - a title that is long enough to matter"},
+                {"[NSFW] something happened today at work and it was long"},
+                {"r/nsfw_gifs"}, {"Show mature content (I'm over 18)"}, {"Blur mature (18+) images and media"},
+                {"This community contains adult content"}, {"Are you over 18?"}, {"Yes, I'm over 18"},
+                {"You must be 18+ to view this community"}, {"Mature content"}, {"Verify your age"},
+                {"Confirm you're over 18 to view this community"}, {"You must be 18 or older to continue"},
+                {"I am over 18 and want to see this"}, {"r/pics, marked as NSFW, a title that goes on for a while"},
+                {"Post marked NSFW"}, {"18+ only"}, {"Mature 18+"},
+                {"Home", "Popular", "A normal title", "NSFW"}};
+        String[][] matureNo = {
+                {"Home", "Popular", "r/aquariums", "My new tank after three months", "245 upvotes", "31 comments"},
+                {"Is this NSFW? I honestly can't tell from the thumbnail"},
+                {"this is nsfw content in my opinion and should be tagged"},
+                {"No NSFW"}, {"2. No NSFW content"}, {"NSFW posts are not allowed here"}, {"Rule 4: no adult content, no spam"},
+                {"I worked 18+ hours on this build and it shows"}, {"Non-NSFW"}, {"r/SFWonly"},
+                {"Settings", "Dark mode", "Autoplay", "Language"}, {"I'm over 18 hours into this game and I can't stop playing it at all, send help please"},
+                {"The tank must be 18 inches long at least for this species"},
+                {"You need at least 18 gallons for a small community tank"},
+                {"Over 18 million people watched it"}, {"18 comments"}, {"18"},
+                {"Battery lasted: 18+ hours"}, {"18+ fish"},
+                {""}};
+        for (String[] m : matureYes) eq("mature yes: " + String.join(" / ", m), BlockerService.matureContentOnScreen(screen(m)), true);
+        for (String[] m : matureNo) eq("mature no: " + String.join(" / ", m), BlockerService.matureContentOnScreen(screen(m)), false);
+
         // ---------- addresses ----------
         Method siteIn = m("siteIn", CharSequence.class, Set.class);
         Set<String> sites = new HashSet<>(Arrays.asList("reddit.com", "redd.it", "instagram.com"));

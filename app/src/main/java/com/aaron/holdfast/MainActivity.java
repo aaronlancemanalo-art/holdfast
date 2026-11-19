@@ -252,6 +252,28 @@ public class MainActivity extends Activity {
         }));
         root.addView(addSite);
 
+        // ----- Reddit: mature content -----
+        header("Reddit: mature content");
+        if (rules.matureBlocked()) {
+            root.addView(text("ON: wherever Reddit is allowed, it closes when anything marked NSFW or 18+ is on "
+                    + "screen, including the settings that switch such content on. It only knows what Reddit "
+                    + "labels.", 14));
+            TextView tip = text("Tightest setup: unblock only the Reddit app, and leave reddit.com and redd.it "
+                    + "under Blocked sites. Reddit on the web and other Reddit apps then stay closed.", 12);
+            tip.setAlpha(0.6f);
+            root.addView(tip);
+            if (!rules.isPending(Rules.TYPE_MATURE, "")) {
+                root.addView(button("Allow mature content (24h)",
+                        v -> confirmRemoval(Rules.TYPE_MATURE, "", "mature content on Reddit")));
+            }
+        } else {
+            root.addView(text("OFF: Reddit is not filtered.", 14));
+            root.addView(button("Block mature content now", v -> {
+                rules.blockMature();
+                render();
+            }));
+        }
+
         // ----- all browsers -----
         header("All browsers");
         if (rules.allBrowsersBlocked()) {
@@ -318,6 +340,7 @@ public class MainActivity extends Activity {
             String what = Rules.TYPE_GUARD.equals(p.type) ? "Turn off tamper protection"
                     : Rules.TYPE_BROWSERS.equals(p.type) ? "Allow browsers"
                     : Rules.TYPE_SIDELOAD.equals(p.type) ? "Allow installs from files"
+                    : Rules.TYPE_MATURE.equals(p.type) ? "Allow mature content on Reddit"
                     : "Unblock " + (Rules.TYPE_APP.equals(p.type) ? label(p.value) : p.value);
             final int idx = i;
             root.addView(row(what + "\nin " + duration(p.remainingMs), "Cancel", v -> {

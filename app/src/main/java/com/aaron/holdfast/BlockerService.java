@@ -134,6 +134,11 @@ public class BlockerService extends AccessibilityService {
     static volatile BlockerService instance;
 
     private static final String OFFICIAL_REDDIT = "com.reddit.frontpage";
+    /** Reddit's own addresses: how a page is known to be Reddit when Reddit isn't on the blocked list. */
+    private static final Set<String> REDDIT_SITES = new HashSet<>(Arrays.asList("reddit.com", "redd.it"));
+    private static final String MATURE_BLOCKED = "Mature (NSFW) content on Reddit is blocked.";
+    /** When each app was last seen showing a Reddit web page (uptime ms). */
+    private final Map<String, Long> redditPageSeen = new HashMap<>();
 
     private Rules rules;
     private Set<String> browserPkgs = new HashSet<>();
@@ -404,33 +409,49 @@ public class BlockerService extends AccessibilityService {
             return;
         }
 
-        // 1e. Blocked sites inside any app's built-in web viewer (Instagram links, unnamed browser
-        // apps...). Other pages load normally; only a blocked site on screen closes it.
-        if (!NO_SCAN_PKGS.contains(pkg) && !rules.getSites().isEmpty()) {
+        // 1f. Reddit, wherever the rules let it open: it closes when something marked mature
+        // (NSFW, 18+) is on screen, including the settings that would switch such content on.
+        if (rules.matureBlocked() && isAllowedRedditApp(pkg)
+                && (windowChange || dueForScan("mature " + pkg, 250))) {
+            AccessibilityNodeInfo r = getRootInActiveWindow();
+            if (r != null && r.getPackageName() != null && pkg.equals(r.getPackageName().toString())
+                    && matureContentOnScreen(readScreen(r))) {
+                // Stepping back first leaves the post, gate or settings screen itself, so the
+                // same screen isn't waiting the next time Reddit is opened.
+                block(MATURE_BLOCKED, true);
+                return;
+            }
+        }
+
+        // 1e. Web pages inside any app's built-in viewer (Instagram links, unnamed browser
+        // apps...). Other pages load normally; only a blocked site on screen closes it, or mature
+        // content on Reddit where Reddit itself is allowed.
+        if (!NO_SCAN_PKGS.contains(pkg) && (!rules.getSites().isEmpty() || rules.matureBlocked())) {
             long now = SystemClock.uptimeMillis();
             Long last = lastDeepScan.get(pkg);
-            if (last == null || now - last >= 1000) {
-                String hit = null;
+            long every = webLookEvery(pkg, now);
+            if (last == null || now - last >= every) {
+                String why = null;
                 try {
                     AccessibilityNodeInfo r = getRootInActiveWindow();
                     if (r != null && r.getPackageName() != null
                             && pkg.equals(r.getPackageName().toString())) {
                         lastDeepScan.put(pkg, now);
-                        hit = blockedSiteInWebViewer(r, rules.getSites(), true);
+                        why = webPageVerdict(r, pkg);
                     }
                 } catch (Throwable t) {
                     // A page that can't be read must not stop the checks below.
                     rules.recordError(t);
                 }
-                if (hit != null) {
-                    block(hit + " is blocked, in every app.");
+                if (why != null) {
+                    block(why, MATURE_BLOCKED.equals(why));
                     return;
                 }
             } else {
                 // Too soon after the last look. Look once more when the page has settled, so a
                 // page that finishes loading just after a look isn't missed.
                 handler.removeCallbacks(webRecheck);
-                handler.postDelayed(webRecheck, 1100 - (now - last));
+                handler.postDelayed(webRecheck, every + 100 - (now - last));
             }
         }
 
@@ -457,12 +478,49 @@ public class BlockerService extends AccessibilityService {
         return true;
     }
 
+    /**
+     * How often (ms) an app's web pages are read. A page known to be Reddit is read more often,
+     * so a marked post doesn't stay up.
+     */
+    private long webLookEvery(String pkg, long now) {
+        Long reddit = redditPageSeen.get(pkg);
+        return reddit != null && now - reddit < 5000 ? 250 : 1000;
+    }
+
+    /** A Reddit app that the rules currently let open (the official one, or another one). */
+    private boolean isAllowedRedditApp(String pkg) {
+        if (rules.getApps().contains(pkg)) return false;
+        if (OFFICIAL_REDDIT.equals(pkg)) return true;
+        return isRedditClient(pkg) && !rules.getSites().contains("reddit.com");
+    }
+
+    /**
+     * Web pages inside the app in front. Returns the reason to close it, or null:
+     * a blocked site, or (where Reddit itself is allowed) mature content on a Reddit page.
+     */
+    private String webPageVerdict(AccessibilityNodeInfo r, String pkg) {
+        Set<String> sites = rules.getSites();
+        boolean redditApp = isAllowedRedditApp(pkg);
+        // An allowed Reddit app showing Reddit's own address is not a blocked site in a viewer.
+        // What it shows is covered by rule 1f instead.
+        if (redditApp) sites.removeAll(REDDIT_SITES);
+        if (!sites.isEmpty()) {
+            String hit = blockedSiteInWebViewer(r, sites, true);
+            if (hit != null) return hit + " is blocked, in every app.";
+        }
+        if (rules.matureBlocked() && !redditApp && !sites.contains("reddit.com")
+                && blockedSiteInWebViewer(r, REDDIT_SITES, true) != null) {
+            redditPageSeen.put(pkg, SystemClock.uptimeMillis());
+            if (matureContentOnScreen(readScreen(r))) return MATURE_BLOCKED;
+        }
+        return null;
+    }
+
     /** The delayed look at a web page that was still changing when it was last read. */
     private void recheckWebPage() {
         try {
             if (rules == null || instance != this) return;
-            Set<String> sites = rules.getSites();
-            if (sites.isEmpty()) return;
+            if (rules.getSites().isEmpty() && !rules.matureBlocked()) return;
             AccessibilityNodeInfo r = getRootInActiveWindow();
             if (r == null || r.getPackageName() == null) return;
             String pkg = r.getPackageName().toString();
@@ -471,10 +529,10 @@ public class BlockerService extends AccessibilityService {
                     || GOOGLE_APP_PKG.equals(pkg) || isTrustedOwnApp(pkg)) return;
             long now = SystemClock.uptimeMillis();
             Long last = lastDeepScan.get(pkg);
-            if (last != null && now - last < 900) return; // an event already caused a fresh look
+            if (last != null && now - last < webLookEvery(pkg, now) - 100) return; // an event already caused a fresh look
             lastDeepScan.put(pkg, now);
-            String hit = blockedSiteInWebViewer(r, sites, true);
-            if (hit != null) block(hit + " is blocked, in every app.");
+            String why = webPageVerdict(r, pkg);
+            if (why != null) block(why, MATURE_BLOCKED.equals(why));
         } catch (Throwable t) {
             if (rules != null) rules.recordError(t);
         }
@@ -523,6 +581,11 @@ public class BlockerService extends AccessibilityService {
             // The Google app is judged by its own rules (Gemini), not here.
             if (GOOGLE_APP_PKG.equals(pkg)) return;
             if (checkSensitiveScreen(root, true)) return;
+            // Same rule as 1f in handle().
+            if (rules.matureBlocked() && isAllowedRedditApp(pkg) && matureContentOnScreen(readScreen(root))) {
+                block(MATURE_BLOCKED, true);
+                return;
+            }
             if (systemAppsToo) checkSystemAppScreen(root);
         } catch (Throwable t) {
             if (rules != null) rules.recordError(t);
@@ -599,10 +662,20 @@ public class BlockerService extends AccessibilityService {
 
         // 2. Blocked sites
         if (isBrowser) {
-            String hit = blockedSiteOnScreen(root, pkg);
+            Set<String> sites = rules.getSites();
+            String hit = blockedSiteOnScreen(root, pkg, sites);
             if (hit != null) {
                 block(hit + " is blocked.");
                 return true;
+            }
+            // Reddit allowed in this browser: mature content on it still closes the page.
+            if (rules.matureBlocked() && !sites.contains("reddit.com")
+                    && blockedSiteOnScreen(root, pkg, REDDIT_SITES) != null) {
+                redditPageSeen.put(pkg, SystemClock.uptimeMillis());
+                if (matureContentOnScreen(readScreen(root))) {
+                    block(MATURE_BLOCKED, true);
+                    return true;
+                }
             }
         }
         return false;
@@ -879,6 +952,88 @@ public class BlockerService extends AccessibilityService {
         return aboutHoldfast && s.hasAny(CONTROL_WORDS);
     }
 
+    // ---------- mature content on Reddit ----------
+
+    /** Wording on Reddit's age gates and on the settings that switch mature content on. */
+    private static final String[] MATURE_PHRASES = {
+            "mature content", "mature (18+)", "adult content", "over eighteen",
+            "nsfw community", "show nsfw", "blur nsfw", "not safe for work",
+            "confirm your age", "verify your age", "age verification", "sexually explicit"};
+    /**
+     * Age wording as a gate or a setting puts it ("I'm over 18", "You must be 18+ to view"),
+     * not as an ordinary sentence does ("over 18 hours", "must be 18 inches").
+     */
+    private static final Pattern AGE_GATE = Pattern.compile(
+            "over 18(?:$|[)?.!,;:'\"]|\\s+(?:to\\s|years?\\s+old|and\\s))"
+            + "|must be 18(?:\\+|\\s+(?:or|to|years))"
+            + "|at least 18 years"
+            + "|18 (?:years )?or older"
+            + "|18\\+ (?:to view|community|content)");
+    /** A rule or notice that forbids such content is not such content. */
+    private static final String[] FORBIDDING = {
+            "not allowed", "isn't allowed", "aren't allowed", "is not permitted", "prohibited",
+            "banned", "don't post", "do not post"};
+    private static final Pattern TAG_SPLIT = Pattern.compile(
+            "(?:[,\u2022\u00b7|\n\t:;\\[\\](){}]+|\\s[-\u2013\u2014]\\s|\\.\\s)");
+
+    /**
+     * True if the screen shows something Reddit marks as mature: an NSFW or 18+ tag on a post
+     * or community (also when it is one item in the line read out for a post), a name with
+     * "nsfw" in it, an age gate, or the settings for showing such content. Ordinary sentences
+     * that merely use the word are left alone, and so are rules that forbid it.
+     */
+    static boolean matureContentOnScreen(Screen s) {
+        for (String t : s.texts) {
+            boolean forbids = t.startsWith("no ") || t.contains(" no ");
+            for (int i = 0; !forbids && i < FORBIDDING.length; i++) forbids = t.contains(FORBIDDING[i]);
+            if (t.length() <= 90 && !forbids) {
+                for (String p : MATURE_PHRASES) {
+                    if (t.contains(p)) return true;
+                }
+                if (t.contains("18") && AGE_GATE.matcher(t).find()) return true;
+            }
+            if (!t.contains("nsfw") && !t.contains("18+")) continue;
+            for (String piece : TAG_SPLIT.split(t)) {
+                if (isMatureTag(piece.trim())) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Longer ways a post or community is announced as marked. */
+    private static final String[] MATURE_LABELS = {
+            "marked as nsfw", "marked nsfw", "tagged as nsfw", "tagged nsfw", "flagged as nsfw",
+            "this post is nsfw", "this community is nsfw", "this profile is nsfw"};
+
+    /** A short piece standing on its own, like "NSFW", "18+", "NSFW spoiler" or "r/nsfw_gifs". */
+    private static boolean isMatureTag(String piece) {
+        if (piece.isEmpty() || piece.length() > 40) return false;
+        for (String label : MATURE_LABELS) {
+            if (piece.equals(label) || piece.startsWith(label + " ") || piece.endsWith(" " + label)) return true;
+        }
+        String[] words = piece.split("\\s+");
+        if (words.length > 2) return false;
+        String first = words[0].replaceAll("[^a-z0-9+]", "");
+        if (first.equals("no") || first.equals("not") || first.equals("non")) return false;
+        for (int i = 0; i < words.length; i++) {
+            String core = words[i].replaceAll("[^a-z0-9+_/]", "");
+            if (core.equals("nsfw")) return true;
+            if (words.length == 1 && core.contains("nsfw") && !core.contains("nonnsfw")
+                    && !core.contains("notnsfw")) return true;
+            if (core.equals("18+")) {
+                // On its own it is a tag. Next to another word it must be a word tags use
+                // ("18+ only"), not a quantity ("18+ hours").
+                if (words.length == 1) return true;
+                String other = words[1 - i].replaceAll("[^a-z0-9+]", "");
+                if (AGE_TAG_WORDS.contains(other)) return true;
+            }
+        }
+        return false;
+    }
+
+    private static final Set<String> AGE_TAG_WORDS = new HashSet<>(Arrays.asList(
+            "only", "mature", "adult", "adults", "community", "content", "nsfw", "post", "profile"));
+
     // ---------- site detection ----------
 
     /** Other names Reddit's pages are served under (copies and front ends). Matched in the site name only. */
@@ -926,8 +1081,7 @@ public class BlockerService extends AccessibilityService {
         return address;
     }
 
-    private String blockedSiteOnScreen(AccessibilityNodeInfo root, String pkg) {
-        Set<String> sites = rules.getSites();
+    private static String blockedSiteOnScreen(AccessibilityNodeInfo root, String pkg, Set<String> sites) {
         if (sites.isEmpty()) return null;
 
         String[] ids = URL_BAR_IDS.get(pkg);

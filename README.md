@@ -31,6 +31,12 @@ While it is on, these close as soon as they open: Holdfast's own Settings pages 
 
 Reddit is recognised by its address, by the titles its pages use and by its links, so it is also closed inside viewers that show no address and under other web addresses. Reddit apps are recognised by name and by being the app that opens Reddit links.
 
+## Reddit with mature content blocked
+
+A separate rule, on by default and with the same 24-hour wait to switch off: wherever Reddit is allowed (its app unblocked, or its sites removed from the blocked list), Reddit closes when something marked mature is on screen. That means an NSFW or 18+ tag on a post or community, a name with "nsfw" in it, an age gate, or the settings that switch such content on. It reads labels, so it only knows what Reddit marks, and it reacts once the label is on screen. Rules that forbid such content ("No NSFW") and ordinary sentences that use the word are left alone.
+
+Unblocking only the Reddit app and leaving `reddit.com` and `redd.it` on the blocked sites list keeps Reddit on the web and other Reddit apps closed. Switching "Show mature content" off in the Reddit account itself is the first layer; this rule is the second.
+
 ## Testing a change without the phone
 
 `tools/sim/run.sh` runs the real `BlockerService` and `Rules` code on a plain JVM against small stand-in Android classes: fake screens, a fake clock and a fake list of installed apps. `Checks` covers the page and address rules one by one; `Scenarios` plays whole sequences (opening a blocked app, a link tab from Claude, Gemini, Settings pages, the installer, web pages inside apps) and checks what Holdfast did. Add a case there for every rule you change.
