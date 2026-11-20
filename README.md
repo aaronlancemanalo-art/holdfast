@@ -31,11 +31,11 @@ While it is on, these close as soon as they open: Holdfast's own Settings pages 
 
 Reddit is recognised by its address, by the titles its pages use and by its links, so it is also closed inside viewers that show no address and under other web addresses. Reddit apps are recognised by name and by being the app that opens Reddit links.
 
-## Reddit with mature content blocked
+## Reddit
 
-A separate rule, on by default and with the same 24-hour wait to switch off: wherever Reddit is allowed (its app unblocked, or its sites removed from the blocked list), Reddit closes when something marked mature is on screen. That means an NSFW or 18+ tag on a post or community, a name with "nsfw" in it, an age gate, or the settings that switch such content on. It reads labels, so it only knows what Reddit marks, and it reacts once the label is on screen. Rules that forbid such content ("No NSFW") and ordinary sentences that use the word are left alone.
+Reddit is blocked in three places at once: the Reddit app on the blocked apps list (it stays there whether or not the app is installed), and `reddit.com` and `redd.it` on the blocked sites list, which also closes other Reddit apps and Reddit under other web addresses. The Reddit section of the app shows whether all three are in place. If one is missing, or a change that would open one is waiting, **Block all of Reddit now** puts everything back in one tap and drops those waiting changes. Other waiting changes are left alone. Build 33 did this once by itself the first time it ran.
 
-Unblocking only the Reddit app and leaving `reddit.com` and `redd.it` on the blocked sites list keeps Reddit on the web and other Reddit apps closed. Switching "Show mature content" off in the Reddit account itself is the first layer; this rule is the second.
+A second rule sits underneath, on by default and with the same 24-hour wait to switch off: if Reddit is ever unblocked, it closes when something marked mature is on screen. That means an NSFW or 18+ tag on a post or community, a name with "nsfw" in it, an age gate, or the settings that switch such content on. It reads labels, so it only knows what Reddit marks, and it reacts once the label is on screen. Rules that forbid such content ("No NSFW") and ordinary sentences that use the word are left alone. It is a second layer, not a substitute for the block.
 
 ## Testing a change without the phone
 

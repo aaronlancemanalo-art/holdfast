@@ -41,8 +41,11 @@ public final class Rules {
     private static final long TICK_MIN_MS = 5000;
     private static final long SETUP_WINDOW_MS = 90 * 1000;
 
+    /** The official Reddit app. On the blocked list it stays blocked whether or not it is installed. */
+    public static final String REDDIT_APP = "com.reddit.frontpage";
+
     private static final List<String> DEFAULT_APPS = Arrays.asList(
-            "com.reddit.frontpage",
+            REDDIT_APP,
             "com.android.chrome");
     private static final List<String> DEFAULT_SITES = Arrays.asList(
             "reddit.com",
@@ -83,6 +86,13 @@ public final class Rules {
         if (!p.contains("sideloadSince")) p.edit().putLong("sideloadSince", 1793271600000L).apply();
         // Added in build 32: wherever Reddit is allowed, mature (NSFW) content on it is not.
         if (!p.contains("noMature")) p.edit().putBoolean("noMature", true).apply();
+        // Build 33: all of Reddit is blocked again, once, when this build first runs. The app had
+        // been uninstalled, and the app picker only lists installed apps, so it could not be put
+        // back on the list by hand. After this one time the usual rule applies: unblocking waits.
+        if (!p.getBoolean("redditWall33", false)) {
+            blockAllReddit();
+            p.edit().putBoolean("redditWall33", true).apply();
+        }
     }
 
     // ---------- reads ----------
@@ -120,6 +130,19 @@ public final class Rules {
     /** Reddit closes when something marked mature (NSFW, 18+) is on screen. Only matters where Reddit is allowed. */
     public boolean matureBlocked() {
         return p.getBoolean("noMature", true);
+    }
+
+    /** True while the Reddit app and both Reddit addresses are on the blocked lists. */
+    public boolean redditBlocked() {
+        return getApps().contains(REDDIT_APP) && getSites().containsAll(DEFAULT_SITES);
+    }
+
+    /** True if a change that would open some part of Reddit is waiting to apply. */
+    public boolean redditUnblockWaiting() {
+        for (Pending x : getPending()) {
+            if (opensReddit(x.type, x.value)) return true;
+        }
+        return false;
     }
 
     public List<Pending> getPending() {
@@ -205,6 +228,40 @@ public final class Rules {
     public synchronized void blockMature() {
         p.edit().putBoolean("noMature", true).apply();
         cancelPending(TYPE_MATURE, "");
+    }
+
+    /**
+     * Everything that keeps Reddit closed, in one go: the app (installed or not), the two Reddit
+     * addresses (which also close other Reddit apps and Reddit under other web addresses), the
+     * mature-content rule, and no waiting change left that would open any of them. Other
+     * waiting changes are left alone.
+     */
+    public synchronized void blockAllReddit() {
+        Set<String> apps = getApps();
+        apps.add(REDDIT_APP);
+        Set<String> sites = getSites();
+        sites.addAll(DEFAULT_SITES);
+        JSONArray arr = pendingArray();
+        JSONArray keep = new JSONArray();
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null || opensReddit(o.optString("type"), o.optString("value"))) continue;
+            keep.put(o);
+        }
+        p.edit().putStringSet("apps", apps)
+                .putStringSet("sites", sites)
+                .putBoolean("noMature", true)
+                .putString("pending", keep.toString())
+                .apply();
+    }
+
+    /** True for a waiting change that would open some part of Reddit. */
+    static boolean opensReddit(String type, String value) {
+        if (TYPE_MATURE.equals(type)) return true;
+        String v = value == null ? "" : value.toLowerCase(Locale.ROOT);
+        if (TYPE_APP.equals(type)) return v.contains("reddit");
+        if (TYPE_SITE.equals(type)) return v.contains("reddit") || v.contains("redd.it");
+        return false;
     }
 
     /** Cancelling a pending loosening is itself a tightening, so it is instant. */

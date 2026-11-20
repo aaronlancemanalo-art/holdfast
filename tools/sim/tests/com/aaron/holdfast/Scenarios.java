@@ -627,6 +627,94 @@ public class Scenarios {
         eq("and the filter is already there", did(), "BACK,HOME|Mature (NSFW) content on Reddit is blocked.");
         noError("mature rule wait");
 
+        // ---- all of Reddit blocked in one go, and once on the update that added it ----
+        fresh();
+        Rules w0 = new Rules(svc);
+        eq("new install: reddit fully blocked", w0.redditBlocked(), true);
+        eq("new install: nothing waiting", w0.redditUnblockWaiting(), false);
+        // The phone as it was before the update: the Reddit app and one address opened by their
+        // waits, the app uninstalled, and more changes waiting.
+        w0.requestRemoval(Rules.TYPE_APP, REDDIT);
+        w0.requestRemoval(Rules.TYPE_SITE, "redd.it");
+        Sim.advance(25L * 3600 * 1000);
+        w0.tick();
+        w0.requestRemoval(Rules.TYPE_MATURE, "");
+        w0.requestRemoval(Rules.TYPE_SITE, "reddit.com");
+        w0.requestRemoval(Rules.TYPE_GUARD, "");
+        w0.requestRemoval(Rules.TYPE_APP, CHROME);
+        Sim.advance(2L * 3600 * 1000);
+        w0.tick();
+        svc.pm.apps.remove(REDDIT);
+        svc.pm.redditApps.remove(REDDIT);
+        eq("before the update: reddit app open", w0.getApps().contains(REDDIT), false);
+        eq("before the update: redd.it open", w0.getSites().contains("redd.it"), false);
+        eq("before the update: not fully blocked", w0.redditBlocked(), false);
+        eq("before the update: more waiting", w0.redditUnblockWaiting(), true);
+        Context.prefs.get("rules").m.remove("redditWall33"); // older builds never set this
+        Rules w1 = new Rules(svc); // the first time the new build runs
+        eq("update: reddit app back on the list though uninstalled", w1.getApps().contains(REDDIT), true);
+        eq("update: both addresses blocked", w1.getSites().containsAll(Arrays.asList("reddit.com", "redd.it")), true);
+        eq("update: mature rule on", w1.matureBlocked(), true);
+        eq("update: fully blocked", w1.redditBlocked(), true);
+        eq("update: nothing waiting that opens reddit", w1.redditUnblockWaiting(), false);
+        StringBuilder left = new StringBuilder();
+        for (Rules.Pending x : w1.getPending()) left.append(x.type).append(":").append(x.value).append(":").append(x.remainingMs / 3600000).append("h ");
+        eq("update: other waiting changes left alone, with their time", left.toString(), "guard::22h app:com.android.chrome:22h ");
+        eq("update: other rules untouched", w1.isGuardOn() && w1.allBrowsersBlocked() && w1.sideloadBlocked() && w1.getApps().contains(CHROME), true);
+        // Reinstalled later: it is blocked from the first screen, and so is everything else Reddit.
+        svc.pm.add(REDDIT, "Reddit", false, STORE, CUTOFF + 1000);
+        svc.pm.redditApps.add(REDDIT);
+        Sim.advance(3000); did();
+        win(REDDIT, "MainActivity", page("Home", "r/aquariums", "My new tank"));
+        eq("after the update: reddit app blocked again", did(), "HOME|Reddit is blocked.");
+        Sim.advance(3000); did();
+        win("com.example.snoo", "Main", page("Home", "r/aquariums"));
+        eq("after the update: other reddit app", did(), "HOME|Snoo Reader is a Reddit app, and Reddit is blocked.");
+        Sim.advance(3000); did();
+        win(MSGR, "BrowserLiteActivity", view(tv("old.reddit.com"), web("pics", wv("a post"))));
+        starts("after the update: reddit in an in-app viewer", did(), "HOME|reddit.com is blocked");
+        Sim.advance(3000); did();
+        win(MSGR, "BrowserLiteActivity", view(tv("i.redd.it/abc.jpg"), web("image", wv("a picture"))));
+        starts("after the update: redd.it in an in-app viewer", did(), "HOME|redd.it is blocked");
+        Sim.advance(3000); did();
+        win("com.whatsapp", "Main", view(tv("Chats")));
+        Sim.advance(3000);
+        eq("after the update: ordinary app untouched", did(), "");
+        // The waits that were left alone still run their course.
+        Sim.advance(23L * 3600 * 1000);
+        w1.tick();
+        eq("left-alone wait still applies on time", w1.isGuardOn(), false);
+        w1.guardOn();
+        // It happens once. A later unblock by the usual wait is respected.
+        w1.requestRemoval(Rules.TYPE_APP, REDDIT);
+        eq("unblocking again: waiting", w1.redditUnblockWaiting(), true);
+        eq("unblocking again: still blocked during the wait", w1.redditBlocked(), true);
+        Sim.advance(25L * 3600 * 1000);
+        w1.tick();
+        eq("unblocking again: open after the wait", w1.getApps().contains(REDDIT), false);
+        eq("update does not block it a second time", new Rules(svc).getApps().contains(REDDIT), false);
+        eq("shown as not fully blocked", w1.redditBlocked(), false);
+        Sim.advance(3000); did();
+        win(REDDIT, "MainActivity", page("Home", "r/aquariums", "My new tank"));
+        Sim.advance(3000);
+        eq("unblocked app opens", did(), "");
+        // One tap puts everything back.
+        w1.requestRemoval(Rules.TYPE_MATURE, "");
+        w1.requestRemoval(Rules.TYPE_SITE, "reddit.com");
+        w1.requestRemoval(Rules.TYPE_SIDELOAD, "");
+        w1.blockAllReddit();
+        eq("one tap: fully blocked", w1.redditBlocked(), true);
+        eq("one tap: reddit waits dropped", w1.redditUnblockWaiting(), false);
+        eq("one tap: mature rule on", w1.matureBlocked(), true);
+        eq("one tap: unrelated wait kept", w1.isPending(Rules.TYPE_SIDELOAD, ""), true);
+        Sim.advance(3000); did();
+        win(REDDIT, "MainActivity", page("Home", "r/aquariums", "My new tank"));
+        eq("one tap: app blocked at once", did(), "HOME|Reddit is blocked.");
+        Sim.advance(25L * 3600 * 1000);
+        w1.tick();
+        eq("one tap: dropped waits never apply", w1.redditBlocked() && w1.matureBlocked(), true);
+        noError("reddit wall");
+
         // ---- odds and ends ----
         fresh();
         svc.pm.ledgerSigned = false;

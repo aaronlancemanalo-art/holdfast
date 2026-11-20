@@ -133,7 +133,7 @@ public class BlockerService extends AccessibilityService {
     /** Set while Android actually has the service connected. The app reads this to show real status. */
     static volatile BlockerService instance;
 
-    private static final String OFFICIAL_REDDIT = "com.reddit.frontpage";
+    private static final String OFFICIAL_REDDIT = Rules.REDDIT_APP;
     /** Reddit's own addresses: how a page is known to be Reddit when Reddit isn't on the blocked list. */
     private static final Set<String> REDDIT_SITES = new HashSet<>(Arrays.asList("reddit.com", "redd.it"));
     private static final String MATURE_BLOCKED = "Mature (NSFW) content on Reddit is blocked.";

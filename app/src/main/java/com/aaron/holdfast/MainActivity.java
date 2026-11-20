@@ -223,7 +223,7 @@ public class MainActivity extends Activity {
         if (apps.isEmpty()) root.addView(text("None", 14));
         for (String pkg : apps) {
             boolean pending = rules.isPending(Rules.TYPE_APP, pkg);
-            root.addView(row(label(pkg) + "\n" + pkg,
+            root.addView(row(label(pkg) + "\n" + pkg + (versionOf(pkg) < 0 ? " (not installed)" : ""),
                     pending ? null : "Unblock (24h)",
                     v -> confirmRemoval(Rules.TYPE_APP, pkg, label(pkg))));
         }
@@ -252,22 +252,40 @@ public class MainActivity extends Activity {
         }));
         root.addView(addSite);
 
-        // ----- Reddit: mature content -----
-        header("Reddit: mature content");
+        // ----- Reddit -----
+        header("Reddit");
+        boolean redditWall = rules.redditBlocked();
+        if (redditWall && !rules.redditUnblockWaiting()) {
+            root.addView(text("Fully blocked: the Reddit app, other Reddit apps, and reddit.com and redd.it in "
+                    + "every app. It stays blocked whether or not Reddit is installed.", 14));
+        } else {
+            List<String> open = new ArrayList<>();
+            if (!rules.getApps().contains(Rules.REDDIT_APP)) open.add("the Reddit app");
+            for (String s : new String[]{"reddit.com", "redd.it"}) {
+                if (!rules.getSites().contains(s)) open.add(s);
+            }
+            TextView w = text(redditWall
+                    ? "Blocked for now, but a change that loosens this is waiting (see Waiting to apply)."
+                    : "Not fully blocked. Open right now: " + String.join(", ", open) + ".", 14);
+            w.setTextColor(0xFFFF6B6B);
+            root.addView(w);
+            root.addView(button("Block all of Reddit now", v -> {
+                rules.blockAllReddit();
+                render();
+            }));
+        }
         if (rules.matureBlocked()) {
-            root.addView(text("ON: wherever Reddit is allowed, it closes when anything marked NSFW or 18+ is on "
-                    + "screen, including the settings that switch such content on. It only knows what Reddit "
-                    + "labels.", 14));
-            TextView tip = text("Tightest setup: unblock only the Reddit app, and leave reddit.com and redd.it "
-                    + "under Blocked sites. Reddit on the web and other Reddit apps then stay closed.", 12);
-            tip.setAlpha(0.6f);
-            root.addView(tip);
+            TextView m = text("Mature content filter: ON. It only comes into play if Reddit is ever unblocked: "
+                    + "Reddit then closes when anything marked NSFW or 18+ is on screen, including the settings "
+                    + "that switch such content on. It only knows what Reddit labels.", 12);
+            m.setAlpha(0.6f);
+            root.addView(m);
             if (!rules.isPending(Rules.TYPE_MATURE, "")) {
                 root.addView(button("Allow mature content (24h)",
                         v -> confirmRemoval(Rules.TYPE_MATURE, "", "mature content on Reddit")));
             }
         } else {
-            root.addView(text("OFF: Reddit is not filtered.", 14));
+            root.addView(text("Mature content filter: OFF. If Reddit is ever unblocked, it is not filtered.", 14));
             root.addView(button("Block mature content now", v -> {
                 rules.blockMature();
                 render();
@@ -653,6 +671,9 @@ public class MainActivity extends Activity {
             ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
             return pm.getApplicationLabel(ai).toString();
         } catch (PackageManager.NameNotFoundException e) {
+            // Not installed: a blocked app stays on the list, so give the known ones a readable name.
+            if (Rules.REDDIT_APP.equals(pkg)) return "Reddit";
+            if ("com.android.chrome".equals(pkg)) return "Chrome";
             return pkg;
         }
     }

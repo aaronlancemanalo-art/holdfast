@@ -245,6 +245,21 @@ public class Checks {
         eq("screen desc", s.exact("button"), true);
         eq("screen miss", s.has("uninstall"), false);
 
+        // ---- which waiting changes would open Reddit (those are dropped by "Block all of Reddit now") ----
+        eq("waiting: mature rule", Rules.opensReddit(Rules.TYPE_MATURE, ""), true);
+        eq("waiting: reddit app", Rules.opensReddit(Rules.TYPE_APP, "com.reddit.frontpage"), true);
+        eq("waiting: another reddit app", Rules.opensReddit(Rules.TYPE_APP, "ml.docilealligator.infinityforreddit"), true);
+        eq("waiting: unrelated app", Rules.opensReddit(Rules.TYPE_APP, "com.whatsapp"), false);
+        eq("waiting: reddit.com", Rules.opensReddit(Rules.TYPE_SITE, "reddit.com"), true);
+        eq("waiting: old.reddit.com", Rules.opensReddit(Rules.TYPE_SITE, "old.reddit.com"), true);
+        eq("waiting: redd.it", Rules.opensReddit(Rules.TYPE_SITE, "redd.it"), true);
+        eq("waiting: i.redd.it", Rules.opensReddit(Rules.TYPE_SITE, "i.redd.it"), true);
+        eq("waiting: unrelated site", Rules.opensReddit(Rules.TYPE_SITE, "instagram.com"), false);
+        eq("waiting: tamper protection", Rules.opensReddit(Rules.TYPE_GUARD, ""), false);
+        eq("waiting: browsers", Rules.opensReddit(Rules.TYPE_BROWSERS, ""), false);
+        eq("waiting: installs from files", Rules.opensReddit(Rules.TYPE_SIDELOAD, ""), false);
+        eq("waiting: empty value", Rules.opensReddit(Rules.TYPE_APP, null), false);
+
         System.out.println(passes + " passed, " + fails + " failed");
         if (fails > 0) System.exit(1);
     }
