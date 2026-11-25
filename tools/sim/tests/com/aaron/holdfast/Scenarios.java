@@ -715,6 +715,175 @@ public class Scenarios {
         eq("one tap: dropped waits never apply", w1.redditBlocked() && w1.matureBlocked(), true);
         noError("reddit wall");
 
+        // ---- manga: reading apps ----
+        fresh();
+        final String MPLUS = "jp.co.shueisha.mangaplus", PANEL = "com.example.panel";
+        svc.pm.add(MPLUS, "MANGA Plus", false, STORE, CUTOFF + 1000);
+        svc.pm.add("com.tapastic", "Tapas", false, STORE, CUTOFF + 1000);
+        svc.pm.add(PANEL, "Panel", false, STORE, CUTOFF + 1000);              // only its links give it away
+        svc.pm.add("com.fun.hangmangame", "Hangman Game", false, STORE, CUTOFF + 1000);
+        svc.pm.add("com.samsung.comics", "Comics", true, null, 0);            // came with the phone
+        // Fast Net is a browser: it answers for every address, so it is not a manga app for that.
+        svc.pm.linkHandlers.put("webtoons.com", new HashSet<>(Arrays.asList(PANEL, "com.example.fastnet")));
+        for (android.content.BroadcastReceiver r : new ArrayList<>(svc.receivers)) r.onReceive(svc, new Intent());
+        Sim.advance(4000); did();
+        win(MPLUS, "Main", view(tv("Updates")));
+        eq("manga app by name", did(), "HOME|MANGA Plus is a manga app, and manga is blocked.");
+        Sim.advance(1000);
+        win("com.tapastic", "Main", view(tv("Home")));
+        eq("manga app from the known list", did(), "HOME|Tapas is a manga app, and manga is blocked.");
+        Sim.advance(1000);
+        win(PANEL, "Main", view(tv("Home")));
+        eq("manga app by what it does", did(), "HOME|Panel is a manga app, and manga is blocked.");
+        Sim.advance(1000);
+        win("com.example.fastnet", "Main", view());
+        eq("browser keeps its own reason", did(), "HOME|Fast Net is blocked (all browsers are).");
+        Sim.advance(1000);
+        win("com.fun.hangmangame", "Main", view(tv("Play")));
+        Sim.advance(3000);
+        eq("hangman game is not manga", did(), "");
+        win("com.samsung.comics", "Main", view(tv("Library")));
+        Sim.advance(3000);
+        eq("app that came with the phone is left alone", did(), "");
+        win("com.whatsapp", "Main", view(tv("Chats")));
+        Sim.advance(3000);
+        eq("ordinary app untouched by the manga rule", did(), "");
+        win("com.google.android.apps.bard", "Main", view(tv("Gemini")));
+        Sim.advance(3000);
+        eq("gemini untouched by the manga rule", did(), "");
+        win(CLAUDE, "MainActivity", view(tv("Chat")));
+        Sim.advance(3000);
+        eq("claude untouched by the manga rule", did(), "");
+        // Link lookups happen between events, never inside them.
+        int lookups = svc.pm.linkLookups;
+        for (int i = 0; i < 20; i++) {
+            win(i % 2 == 0 ? "com.whatsapp" : MSGR, "Main", view(tv("Chats")));
+            content(MPLUS, view(tv("Updates")));
+        }
+        eq("no link lookups while handling events", svc.pm.linkLookups, lookups);
+        Sim.advance(3000); did();
+        eq("the app's own list of what the rule closes",
+                Manga.installedApps(svc.pm, "com.aaron.holdfast").toString(), "[MANGA Plus, Panel, Tapas]");
+        noError("manga apps");
+
+        // A reading app known only by its links, opened in the first moment after the service starts.
+        fresh();
+        svc.pm.add(PANEL, "Panel", false, STORE, CUTOFF + 1000);
+        svc.pm.linkHandlers.put("tapas.io", new HashSet<>(Arrays.asList(PANEL)));
+        win(PANEL, "Main", view(tv("Home")));
+        eq("link app in the first moment: not known yet", did(), "");
+        Sim.advance(400);
+        content(PANEL, view(tv("Home")));
+        eq("link app: closed as soon as it is known", did(), "HOME|Panel is a manga app, and manga is blocked.");
+        // Installed later: known a few seconds after the install.
+        Sim.advance(3000); did();
+        svc.pm.add("com.example.inkwell", "Inkwell", false, STORE, CUTOFF + 2000);
+        svc.pm.linkHandlers.put("mangadex.org", new HashSet<>(Arrays.asList("com.example.inkwell")));
+        for (android.content.BroadcastReceiver r : new ArrayList<>(svc.receivers)) r.onReceive(svc, new Intent());
+        Sim.advance(3500);
+        win("com.example.inkwell", "Main", view(tv("Library")));
+        eq("link app installed later", did(), "HOME|Inkwell is a manga app, and manga is blocked.");
+        Sim.advance(1000);
+        svc.pm.add("com.example.newmanga", "Manga Shelf", false, STORE, CUTOFF + 3000);
+        for (android.content.BroadcastReceiver r : new ArrayList<>(svc.receivers)) r.onReceive(svc, new Intent());
+        win("com.example.newmanga", "Main", view(tv("Library")));
+        eq("named manga app installed later: closed at once", did(), "HOME|Manga Shelf is a manga app, and manga is blocked.");
+        noError("manga link apps");
+
+        // ---- manga: reader sites inside other apps ----
+        fresh();
+        win(MSGR, "BrowserLiteActivity", view(tv("mangadex.org"), web("One Piece", wv("Chapter 1"))));
+        eq("manga site in an in-app viewer", did(), "HOME|mangadex.org is a manga site, and manga is blocked in every app.");
+        Sim.advance(3000); did();
+        win(MSGR, "BrowserLiteActivity", view(tv("https://www.webtoons.com/en/fantasy/x/list?title_no=1"), web("x", wv("Episode 1"))));
+        eq("webtoon site, full address", did(), "HOME|webtoons.com is a manga site, and manga is blocked in every app.");
+        Sim.advance(3000); did();
+        win(MSGR, "BrowserLiteActivity", view(tv("tapas.io"), web("Tapas", wv("Series"))));
+        eq("reader site from the list", did(), "HOME|tapas.io is a manga site, and manga is blocked in every app.");
+        Sim.advance(3000); did();
+        win(MSGR, "BrowserLiteActivity", view(tv("mangadex-org.translate.goog"), web("x", wv("Chapter 1"))));
+        eq("manga site through a translating address", did(), "HOME|mangadex-org.translate.goog is a manga site, and manga is blocked in every app.");
+        Sim.advance(3000); did();
+        win(CLAUDE, "MainActivity", view(tv("Chat")));
+        win(CHROME, TAB, chromeTab("mangadex.org/title/abc", "One Piece"));
+        eq("manga site in a Claude link tab", did(), "HOME|mangadex.org is a manga site, and manga is blocked in every app.");
+        Sim.advance(3000); did();
+        win(CLAUDE, "MainActivity", view(tv("Chat")));
+        win(CHROME, TAB, chromeTab("en.wikipedia.org/wiki/Manga", "Manga - Wikipedia"));
+        Sim.advance(3000);
+        eq("a page about manga, in a Claude link tab", did(), "");
+        win(MSGR, "BrowserLiteActivity", view(tv("en.wikipedia.org"), web("Manga - Wikipedia", wv("mangadex.org"), wv("Manga are comics from Japan"))));
+        Sim.advance(3000);
+        eq("a page that lists manga sites", did(), "");
+        win(MSGR, "BrowserLiteActivity", view(tv("google.com/search?q=manga"), web("manga - Search", wv("mangadex.org"))));
+        Sim.advance(3000);
+        eq("a search for the word", did(), "");
+        win(MSGR, "BrowserLiteActivity", view(tv("amazon.com/One-Piece-Manga-Vol-1/dp/1"), web("One Piece", wv("Buy now"))));
+        Sim.advance(3000);
+        eq("a shop page for a manga book", did(), "");
+        win(MSGR, "BrowserLiteActivity", view(tv("mangaloretoday.com"), web("News", wv("Headlines"))));
+        Sim.advance(3000);
+        eq("a news site with the letters in its name", did(), "");
+        win(CLAUDE, "MainActivity", page("You could look on mangadex.org", "mangadex.org"));
+        Sim.advance(3000);
+        eq("a chat that names a manga site, no web page", did(), "");
+        win(GOOGLE, ROBIN, view(edit(null).hint("Ask Gemini")));
+        Sim.advance(3000);
+        content(GOOGLE, view(edit("x").hint("Ask Gemini"), tv("mangadex.org"), web("Answer", wv("text"))));
+        Sim.advance(3000);
+        eq("a Gemini answer that names a manga site", did(), "");
+        win(MSGR, "BrowserLiteActivity", view(tv("old.reddit.com"), web("pics", wv("a post"))));
+        starts("reddit keeps its own reason", did(), "HOME|reddit.com is blocked");
+        noError("manga sites");
+
+        // ---- the manga rule follows the same 24-hour wait as every other rule ----
+        fresh();
+        svc.pm.add(MPLUS, "MANGA Plus", false, STORE, CUTOFF + 1000);
+        Rules mr = new Rules(svc);
+        eq("manga rule: on from the start", mr.mangaBlocked(), true);
+        Context.prefs.get("rules").m.remove("noManga"); // a phone updating from an older build
+        eq("manga rule: on after the update that adds it", new Rules(svc).mangaBlocked(), true);
+        eq("manga rule: saved as on", Context.prefs.get("rules").m.get("noManga"), true);
+        mr.requestRemoval(Rules.TYPE_MANGA, "");
+        eq("manga rule: waiting", mr.isPending(Rules.TYPE_MANGA, ""), true);
+        Sim.advance(23L * 3600 * 1000);
+        mr.tick();
+        eq("manga rule: still on at 23 hours", mr.mangaBlocked(), true);
+        win(MPLUS, "Main", view(tv("Updates")));
+        eq("manga app still closed during the wait", did(), "HOME|MANGA Plus is a manga app, and manga is blocked.");
+        Sim.advance(2L * 3600 * 1000);
+        mr.tick();
+        eq("manga rule: off after 24 hours", mr.mangaBlocked(), false);
+        Sim.advance(3000); did();
+        win(MPLUS, "Main", view(tv("Updates")));
+        Sim.advance(3000);
+        eq("manga app opens once the rule is off", did(), "");
+        win(MSGR, "BrowserLiteActivity", view(tv("mangadex.org"), web("One Piece", wv("Chapter 1"))));
+        Sim.advance(3000);
+        eq("manga site opens once the rule is off", did(), "");
+        eq("other rules untouched by that", mr.redditBlocked() && mr.allBrowsersBlocked() && mr.isGuardOn() && mr.matureBlocked(), true);
+        mr.blockManga();
+        eq("manga rule: back on at once", mr.mangaBlocked(), true);
+        win(MPLUS, "Main", view(tv("Updates")));
+        eq("manga app closed again at once", did(), "HOME|MANGA Plus is a manga app, and manga is blocked.");
+        Sim.advance(3000); did();
+        win(MSGR, "BrowserLiteActivity", view(tv("mangadex.org"), web("One Piece", wv("Chapter 1"))));
+        eq("manga site closed again at once", did(), "HOME|mangadex.org is a manga site, and manga is blocked in every app.");
+        mr.requestRemoval(Rules.TYPE_MANGA, "");
+        mr.blockManga();
+        eq("blocking again drops the wait", mr.isPending(Rules.TYPE_MANGA, ""), false);
+        mr.requestRemoval(Rules.TYPE_MANGA, "");
+        mr.blockAllReddit();
+        eq("blocking Reddit leaves a manga wait alone", mr.isPending(Rules.TYPE_MANGA, ""), true);
+        eq("a manga wait is not a Reddit change", Rules.opensReddit(Rules.TYPE_MANGA, ""), false);
+        // A site he put on the list himself keeps the plain reason.
+        mr.blockManga();
+        mr.blockSite("mangadex.org");
+        Sim.advance(3000); did();
+        win(MSGR, "BrowserLiteActivity", view(tv("mangadex.org"), web("One Piece", wv("Chapter 1"))));
+        eq("site on his own list: plain reason", did(), "HOME|mangadex.org is blocked, in every app.");
+        noError("manga rule wait");
+
         // ---- odds and ends ----
         fresh();
         svc.pm.ledgerSigned = false;

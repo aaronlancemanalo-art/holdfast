@@ -36,6 +36,7 @@ public final class Rules {
     public static final String TYPE_BROWSERS = "browsers";
     public static final String TYPE_SIDELOAD = "sideload";
     public static final String TYPE_MATURE = "mature";
+    public static final String TYPE_MANGA = "manga";
 
     private static final String PREFS = "rules";
     private static final long TICK_MIN_MS = 5000;
@@ -86,6 +87,8 @@ public final class Rules {
         if (!p.contains("sideloadSince")) p.edit().putLong("sideloadSince", 1793271600000L).apply();
         // Added in build 32: wherever Reddit is allowed, mature (NSFW) content on it is not.
         if (!p.contains("noMature")) p.edit().putBoolean("noMature", true).apply();
+        // Added in build 34: manga reading apps and manga sites are blocked, so this starts on.
+        if (!p.contains("noManga")) p.edit().putBoolean("noManga", true).apply();
         // Build 33: all of Reddit is blocked again, once, when this build first runs. The app had
         // been uninstalled, and the app picker only lists installed apps, so it could not be put
         // back on the list by hand. After this one time the usual rule applies: unblocking waits.
@@ -130,6 +133,11 @@ public final class Rules {
     /** Reddit closes when something marked mature (NSFW, 18+) is on screen. Only matters where Reddit is allowed. */
     public boolean matureBlocked() {
         return p.getBoolean("noMature", true);
+    }
+
+    /** Manga reading apps don't open, and manga sites are closed inside every app. */
+    public boolean mangaBlocked() {
+        return p.getBoolean("noManga", true);
     }
 
     /** True while the Reddit app and both Reddit addresses are on the blocked lists. */
@@ -230,6 +238,11 @@ public final class Rules {
         cancelPending(TYPE_MATURE, "");
     }
 
+    public synchronized void blockManga() {
+        p.edit().putBoolean("noManga", true).apply();
+        cancelPending(TYPE_MANGA, "");
+    }
+
     /**
      * Everything that keeps Reddit closed, in one go: the app (installed or not), the two Reddit
      * addresses (which also close other Reddit apps and Reddit under other web addresses), the
@@ -324,6 +337,7 @@ public final class Rules {
         boolean browsers = allBrowsersBlocked();
         boolean sideload = sideloadBlocked();
         boolean mature = matureBlocked();
+        boolean manga = mangaBlocked();
         JSONArray keep = new JSONArray();
 
         for (int i = 0; i < arr.length(); i++) {
@@ -339,6 +353,7 @@ public final class Rules {
                 else if (TYPE_BROWSERS.equals(type)) browsers = false;
                 else if (TYPE_SIDELOAD.equals(type)) sideload = false;
                 else if (TYPE_MATURE.equals(type)) mature = false;
+                else if (TYPE_MANGA.equals(type)) manga = false;
             } else {
                 try {
                     o.put("rem", rem);
@@ -355,6 +370,7 @@ public final class Rules {
                 .putBoolean("allBrowsers", browsers)
                 .putBoolean("noSideload", sideload)
                 .putBoolean("noMature", mature)
+                .putBoolean("noManga", manga)
                 .putString("pending", keep.toString());
         stampClock(e);
         e.apply();

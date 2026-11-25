@@ -260,6 +260,56 @@ public class Checks {
         eq("waiting: installs from files", Rules.opensReddit(Rules.TYPE_SIDELOAD, ""), false);
         eq("waiting: empty value", Rules.opensReddit(Rules.TYPE_APP, null), false);
 
+        // ---- manga: which apps count, by id or by the name they show ----
+        String[][] mangaApps = {
+                {"com.naver.linewebtoon", "WEBTOON"}, {"jp.co.shueisha.mangaplus", "MANGA Plus"},
+                {"com.square_enix.android_googleplay.mangaup_global", "Manga UP!"}, {"com.webcomics.manga", "WebComics"},
+                {"com.tapastic", "Tapas"}, {"com.toomics.global.google", "Toomics"}, {"com.contentsfirst.tappytoon", "Tappytoon"},
+                {"com.viz.wsj.android", "Shonen Jump"}, {"com.vizmanga.android", "VIZ Manga"}, {"net.manta.comic", "Manta"},
+                {"com.inkr.comics", "INKR"}, {"com.lezhin.comics", "Lezhin"}, {"com.comikey.banagher", "Comikey"}, {"co.azuki.app", "Omoi"},
+                {"app.mihon", "Mihon"}, {"eu.kanade.tachiyomi", "Tachiyomi"},
+                {"eu.kanade.tachiyomi.extension.en.mangadex", "Tachiyomi: MangaDex"}, {"org.koitharu.kotatsu", "Kotatsu"},
+                {"com.example.reader", "Manhwa Reader"}, {"com.example.r2", "Manhua World"}, {"com.example.r3", "Doujin Viewer"},
+                {"com.example.r4", "ComicScreen"}, {"com.globalcomix.mobileapp", "GlobalComix"},
+                {"jp.pxv.android.manga", "pixiv\u30b3\u30df\u30c3\u30af"}, {"com.example.jp", "\u30de\u30f3\u30acBANG"},
+                {"com.example.kr", "\ub124\uc774\ubc84 \uc6f9\ud230"}, {"com.example.cn", "\u5feb\u770b\u6f2b\u753b"},
+                {"com.rookiestudio.perfectviewer", "Perfect Viewer"}, {"com.example.caps", "MANGA ZONE"},
+                {"com.example.meeya", "MangaMeeya"}, {"com.mangameeya.android", "Viewer"}};
+        for (String[] x : mangaApps) eq("manga app: " + x[0], Manga.isApp(x[0], x[1]), true);
+        String[][] notMangaApps = {
+                {"com.whatsapp", "WhatsApp"}, {"com.anthropic.claude", "Claude"}, {"com.google.android.apps.bard", "Gemini"},
+                {"com.namco.pacmangame", "PAC-MAN"}, {"com.fun.hangmangame", "Hangman Game"}, {"com.germangaming.hub", "German Gaming"},
+                {"com.city.mangalore", "Mangalore Today"}, {"com.lab.manganese", "Manganese Calculator"}, {"com.amazon.kindle", "Kindle"},
+                {"com.google.android.apps.books", "Play Books"}, {"com.icbc.mobile", "ICBC"}, {"com.economist.lamarr", "The Economist"},
+                {"com.google.android.youtube", "YouTube"}, {"com.aaron.riyalledger", "Riyal Ledger"}, {"com.instagram.android", "Instagram"},
+                {"com.spotify.music", "Spotify"}, {"com.microsoft.office.outlook", "Outlook"}, {"com.crunchyroll.crunchyroid", "Crunchyroll"},
+                {"com.netflix.mediaclient", "Netflix"}, {"com.cosmic.games", "Cosmic Run"}, {"com.management.tool", "Manager"},
+                {"com.mango.shop", "Mango"}, {"com.sec.android.app.myfiles", "My Files"}, {"com.aaron.holdfast", "Holdfast"},
+                {"com.reddit.frontpage", "Reddit"}, {"com.facebook.orca", "Messenger"}, {"com.google.android.gm", "Gmail"},
+                {"com.namco.pacmangames", "PAC-MAN Party"}, {"com.fun.hangmangame.free", "Hangman"},
+                {"com.mihoyo.genshinimpact", "Genshin Impact"}, {"com.economictimes.news", "Economic Times"}};
+        for (String[] x : notMangaApps) eq("not a manga app: " + x[0], Manga.isApp(x[0], x[1]), false);
+        eq("manga app: no name to go on", Manga.isApp("com.whatsapp", null), false);
+        eq("manga app: no id", Manga.isApp(null, "Manga"), false);
+        eq("manga app: id alone is enough", Manga.isApp("jp.co.shueisha.mangaplus", null), true);
+
+        // ---- manga: which sites count, by the site name alone ----
+        String[] mangaSites = {"mangadex.org", "www.mangakakalot.gg", "manganato.com", "chapmanganato.to",
+                "mangaplus.shueisha.co.jp", "www.webtoons.com", "m.webtoons.com", "tapas.io", "www.tapas.io", "bato.to",
+                "comick.io", "asuracomic.net", "reaperscans.com", "asurascans.com", "flamecomics.xyz", "toonily.com",
+                "kmanga.kodansha.com", "global.manga-up.com", "viz.com", "www.viz.com", "MANGADEX.ORG", "kunmanga.com",
+                "manhuaplus.com", "readmanhwa.example", "somedoujin.example", "mangadex-org.translate.goog",
+                "www-tapas-io.translate.goog", "tapas-io.cdn.ampproject.org", "comic--days-com.translate.goog",
+                "comic-days.com", "pocket.shonenmagazine.com"};
+        for (String h : mangaSites) eq("manga site: " + h, Manga.isSite(h), true);
+        String[] notMangaSites = {"google.com", "en.wikipedia.org", "mangaloretoday.com", "manganese.org", "www.pacmangame.com",
+                "hangmangame.net", "mangahigh.com", "amazon.com", "comicbook.com", "gocomics.com", "cartoonnetwork.com",
+                "saskatoon.ca", "etherscan.io", "urlscan.io", "claude.ai", "github.com", "translate.goog", "aviz.com",
+                "viz.com.example.org", "shonenmagazine.com", "naver.com", "kakao.com", "qq.com", "scans.com", "reddit.com",
+                "mangadex", "one piece manga", "", "youtube.com", "holcim.com"};
+        for (String h : notMangaSites) eq("not a manga site: " + h, Manga.isSite(h), false);
+        eq("not a manga site: nothing", Manga.isSite(null), false);
+
         System.out.println(passes + " passed, " + fails + " failed");
         if (fails > 0) System.exit(1);
     }

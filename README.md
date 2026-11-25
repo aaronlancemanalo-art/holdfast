@@ -37,6 +37,15 @@ Reddit is blocked in three places at once: the Reddit app on the blocked apps li
 
 A second rule sits underneath, on by default and with the same 24-hour wait to switch off: if Reddit is ever unblocked, it closes when something marked mature is on screen. That means an NSFW or 18+ tag on a post or community, a name with "nsfw" in it, an age gate, or the settings that switch such content on. It reads labels, so it only knows what Reddit marks, and it reacts once the label is on screen. Rules that forbid such content ("No NSFW") and ordinary sentences that use the word are left alone. It is a second layer, not a substitute for the block.
 
+## Manga
+
+One rule, on by default, with the same 24-hour wait to switch off. While it is on:
+
+- **Reading apps don't open.** An app counts as one if its name or id says so (manga, manhwa, manhua, webtoon, comic and similar words, in several languages), if it is on a built-in list of known readers whose names don't say it (Tapas, Toomics, Shonen Jump and others), or if it opens links to a reader site itself without being a general browser. That covers apps installed later too. Apps that came with the phone are never counted, and general book apps (Kindle, Play Books) are left alone. The Manga section of the app lists the installed apps the rule currently closes.
+- **Reader sites are closed inside every app**, the same way a blocked site is: when the address shown above a web page is a reader site. That is judged by the site's name only (a name with manga, manhwa, manhua or webtoon in it, a translation group's "...scans" site, or one on a built-in list), so a search for the word, a shop page for a book, or an article about manga stays open.
+
+The words and lists live in `Manga.java`. If an app or site is wrongly closed or wrongly left open, that file is where to fix it.
+
 ## Testing a change without the phone
 
 `tools/sim/run.sh` runs the real `BlockerService` and `Rules` code on a plain JVM against small stand-in Android classes: fake screens, a fake clock and a fake list of installed apps. `Checks` covers the page and address rules one by one; `Scenarios` plays whole sequences (opening a blocked app, a link tab from Claude, Gemini, Settings pages, the installer, web pages inside apps) and checks what Holdfast did. Add a case there for every rule you change.

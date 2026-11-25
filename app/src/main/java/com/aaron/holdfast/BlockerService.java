@@ -146,6 +146,21 @@ public class BlockerService extends AccessibilityService {
     private Set<String> redditLinkApps = new HashSet<>();
     private long browsersCheckedAt = 0;
     private final Map<String, Boolean> redditClientCache = new HashMap<>();
+    /** Stands in the set of blocked sites for "every manga reader site" while that rule is on. */
+    private static final String MANGA_SITES = "*manga";
+    private final Map<String, Boolean> mangaAppCache = new HashMap<>();
+    /** Apps that open manga site links themselves without being a general browser. */
+    private Set<String> mangaLinkApps = new HashSet<>();
+    private long mangaLinksCheckedAt = 0;
+    /** How long after an app is installed, updated or removed the link apps are looked up again. */
+    private static final long MANGA_LINKS_SETTLE_MS = 3000;
+    private static final long MANGA_LINKS_EVERY_MS = 6L * 60 * 60 * 1000;
+    private final Runnable mangaLinksRefresh = new Runnable() {
+        @Override
+        public void run() {
+            refreshMangaLinkApps();
+        }
+    };
     private final Map<String, Boolean> browserNameCache = new HashMap<>();
     private final Map<String, Boolean> systemAppCache = new HashMap<>();
     private final Map<String, Long> lastDeepScan = new HashMap<>();
@@ -232,6 +247,8 @@ public class BlockerService extends AccessibilityService {
         super.onServiceConnected();
         rules = new Rules(this);
         instance = this;
+        handler.removeCallbacks(mangaLinksRefresh);
+        handler.postDelayed(mangaLinksRefresh, 300);
         if (!appsChangedOn) {
             try {
                 IntentFilter f = new IntentFilter();
@@ -284,7 +301,11 @@ public class BlockerService extends AccessibilityService {
         redditClientCache.clear();
         browserNameCache.clear();
         systemAppCache.clear();
+        mangaAppCache.clear();
         ledgerTrusted = null;
+        // Several of these arrive together when an app updates: look once, when they have settled.
+        handler.removeCallbacks(mangaLinksRefresh);
+        handler.postDelayed(mangaLinksRefresh, MANGA_LINKS_SETTLE_MS);
     }
 
     @Override
@@ -402,6 +423,12 @@ public class BlockerService extends AccessibilityService {
             return;
         }
 
+        // 1g. Manga reading apps, by name, by a list of known ones, or by what they do
+        if (rules.mangaBlocked() && isMangaApp(pkg)) {
+            block(appLabel(pkg) + " is a manga app, and manga is blocked.");
+            return;
+        }
+
         // 1d. Apps installed from a file (whatever app delivered the file) can't be opened
         if (rules.sideloadBlocked()) haveSideloadList(); // made on the first event, before any app is judged
         if (rules.sideloadBlocked() && isNewSideloadedApp(pkg)) {
@@ -426,7 +453,8 @@ public class BlockerService extends AccessibilityService {
         // 1e. Web pages inside any app's built-in viewer (Instagram links, unnamed browser
         // apps...). Other pages load normally; only a blocked site on screen closes it, or mature
         // content on Reddit where Reddit itself is allowed.
-        if (!NO_SCAN_PKGS.contains(pkg) && (!rules.getSites().isEmpty() || rules.matureBlocked())) {
+        if (!NO_SCAN_PKGS.contains(pkg)
+                && (!rules.getSites().isEmpty() || rules.matureBlocked() || rules.mangaBlocked())) {
             long now = SystemClock.uptimeMillis();
             Long last = lastDeepScan.get(pkg);
             long every = webLookEvery(pkg, now);
@@ -499,14 +527,14 @@ public class BlockerService extends AccessibilityService {
      * a blocked site, or (where Reddit itself is allowed) mature content on a Reddit page.
      */
     private String webPageVerdict(AccessibilityNodeInfo r, String pkg) {
-        Set<String> sites = rules.getSites();
+        Set<String> sites = blockedSites();
         boolean redditApp = isAllowedRedditApp(pkg);
         // An allowed Reddit app showing Reddit's own address is not a blocked site in a viewer.
         // What it shows is covered by rule 1f instead.
         if (redditApp) sites.removeAll(REDDIT_SITES);
         if (!sites.isEmpty()) {
             String hit = blockedSiteInWebViewer(r, sites, true);
-            if (hit != null) return hit + " is blocked, in every app.";
+            if (hit != null) return siteReason(hit, true);
         }
         if (rules.matureBlocked() && !redditApp && !sites.contains("reddit.com")
                 && blockedSiteInWebViewer(r, REDDIT_SITES, true) != null) {
@@ -520,7 +548,7 @@ public class BlockerService extends AccessibilityService {
     private void recheckWebPage() {
         try {
             if (rules == null || instance != this) return;
-            if (rules.getSites().isEmpty() && !rules.matureBlocked()) return;
+            if (rules.getSites().isEmpty() && !rules.matureBlocked() && !rules.mangaBlocked()) return;
             AccessibilityNodeInfo r = getRootInActiveWindow();
             if (r == null || r.getPackageName() == null) return;
             String pkg = r.getPackageName().toString();
@@ -662,10 +690,10 @@ public class BlockerService extends AccessibilityService {
 
         // 2. Blocked sites
         if (isBrowser) {
-            Set<String> sites = rules.getSites();
+            Set<String> sites = blockedSites();
             String hit = blockedSiteOnScreen(root, pkg, sites);
             if (hit != null) {
-                block(hit + " is blocked.");
+                block(siteReason(hit, false));
                 return true;
             }
             // Reddit allowed in this browser: mature content on it still closes the page.
@@ -1050,7 +1078,7 @@ public class BlockerService extends AccessibilityService {
         String t = text.toString().trim().toLowerCase(Locale.ROOT);
         if (t.isEmpty()) return null;
         for (String s : sites) {
-            if (s.isEmpty()) continue;
+            if (s.isEmpty() || s.charAt(0) == '*') continue; // "*..." stands for a kind of site, see below
             if (t.contains(s)) return s;
             if (s.indexOf('.') > 0) {
                 String dashed = s.replace('.', '-');
@@ -1066,6 +1094,15 @@ public class BlockerService extends AccessibilityService {
                     if (host.contains(w)) return "reddit.com";
                 }
             }
+        }
+        // Manga reader sites, while that rule is on: judged by the site name only, so a search
+        // for the word or a shop page about a book is not one.
+        if (sites.contains(MANGA_SITES) && t.indexOf(' ') < 0) {
+            String host = hostOf(t);
+            int at = host.lastIndexOf('@');
+            if (at >= 0) host = host.substring(at + 1);
+            if (host.startsWith("www.")) host = host.substring(4);
+            if (Manga.isSite(host)) return host;
         }
         return null;
     }
@@ -1604,6 +1641,59 @@ public class BlockerService extends AccessibilityService {
             }
         }
         return false;
+    }
+
+    // ---------- manga ----------
+
+    /** The blocked sites, plus (while the manga rule is on) a stand-in for every manga reader site. */
+    private Set<String> blockedSites() {
+        Set<String> sites = rules.getSites();
+        if (rules.mangaBlocked()) sites.add(MANGA_SITES);
+        return sites;
+    }
+
+    /** What the block screen says about a site. */
+    private String siteReason(String site, boolean everyApp) {
+        if (rules.mangaBlocked() && !rules.getSites().contains(site) && Manga.isSite(site)) {
+            return site + " is a manga site, and manga is blocked" + (everyApp ? " in every app." : ".");
+        }
+        return site + (everyApp ? " is blocked, in every app." : " is blocked.");
+    }
+
+    /**
+     * A manga, manhwa or webtoon reading app (see Manga). Apps that came with the phone are
+     * never counted, whatever they are called.
+     */
+    private boolean isMangaApp(String pkg) {
+        // The list of link apps is made when the service starts and again whenever an app is
+        // installed, updated or removed. As a backstop it is also remade now and then, away
+        // from this event.
+        long now = SystemClock.uptimeMillis();
+        if (now - mangaLinksCheckedAt > MANGA_LINKS_EVERY_MS) {
+            mangaLinksCheckedAt = now;
+            handler.removeCallbacks(mangaLinksRefresh);
+            handler.postDelayed(mangaLinksRefresh, 500);
+        }
+        Boolean cached = mangaAppCache.get(pkg);
+        if (cached != null) return cached;
+        boolean r = false;
+        if (!isSystemApp(pkg)) {
+            r = Manga.isApp(pkg, appLabel(pkg)) || mangaLinkApps.contains(pkg);
+        }
+        mangaAppCache.put(pkg, r);
+        return r;
+    }
+
+    /** Looks up which apps open manga site links themselves. Runs between events, not inside one. */
+    private void refreshMangaLinkApps() {
+        try {
+            if (rules == null || instance != this) return;
+            mangaLinksCheckedAt = SystemClock.uptimeMillis();
+            mangaLinkApps = Manga.linkApps(getPackageManager(), browserPackages(), getPackageName());
+            mangaAppCache.clear();
+        } catch (Throwable t) {
+            if (rules != null) rules.recordError(t);
+        }
     }
 
     // ---------- Reddit apps ----------

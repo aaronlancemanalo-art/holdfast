@@ -5,6 +5,9 @@ public class PackageManager {
     public static class App { public String label; public boolean system; public String installer; public long firstInstall; }
     public Map<String, App> apps = new HashMap<>();
     public Set<String> browsers = new HashSet<>(), searchApps = new HashSet<>(), redditApps = new HashSet<>();
+    /** Apps that answer for links to a site: a piece of the address -> the apps. */
+    public Map<String, Set<String>> linkHandlers = new HashMap<>();
+    public int linkLookups = 0;
     public boolean ledgerSigned = true;
     public void add(String pkg, String label, boolean system, String installer, long firstInstall) {
         App a = new App(); a.label = label; a.system = system; a.installer = installer; a.firstInstall = firstInstall; apps.put(pkg, a);
@@ -21,7 +24,12 @@ public class PackageManager {
     public List<ResolveInfo> queryIntentActivities(android.content.Intent i, int flags) {
         Set<String> out = new LinkedHashSet<>();
         if ("android.intent.action.WEB_SEARCH".equals(i.action)) out.addAll(searchApps);
-        else if (i.uri != null) { out.addAll(browsers); if (i.uri.contains("reddit.com") || i.uri.contains("redd.it")) out.addAll(redditApps); }
+        else if (i.uri != null) {
+            linkLookups++;
+            out.addAll(browsers);
+            if (i.uri.contains("reddit.com") || i.uri.contains("redd.it")) out.addAll(redditApps);
+            for (Map.Entry<String, Set<String>> e : linkHandlers.entrySet()) if (i.uri.contains(e.getKey())) out.addAll(e.getValue());
+        }
         List<ResolveInfo> l = new ArrayList<>();
         for (String p : out) { if (!apps.containsKey(p)) continue; ResolveInfo r = new ResolveInfo(); r.activityInfo = new ActivityInfo(); r.activityInfo.packageName = p; l.add(r); }
         return l;
@@ -32,6 +40,11 @@ public class PackageManager {
         InstallSourceInfo s = new InstallSourceInfo(); s.installer = a.installer; return s;
     }
     public String getInstallerPackageName(String pkg) { App a = apps.get(pkg); return a == null ? null : a.installer; }
+    public List<ApplicationInfo> getInstalledApplications(int flags) {
+        List<ApplicationInfo> l = new ArrayList<>();
+        for (String p : apps.keySet()) { try { l.add(getApplicationInfo(p, 0)); } catch (NameNotFoundException e) { } }
+        return l;
+    }
     public List<PackageInfo> getInstalledPackages(int flags) {
         List<PackageInfo> l = new ArrayList<>();
         for (String p : apps.keySet()) { try { l.add(getPackageInfo(p, 0)); } catch (NameNotFoundException e) { } }

@@ -62,6 +62,8 @@ public class MainActivity extends Activity {
     private String updateError;
     private long lastCheck = 0;
     private boolean downloading = false;
+    /** Installed apps the manga rule closes, or null while they are being looked up. */
+    private List<String> mangaApps;
 
     /** Fires when Android's downloader finishes the update APK. */
     private final BroadcastReceiver downloadDone = new BroadcastReceiver() {
@@ -129,6 +131,7 @@ public class MainActivity extends Activity {
         super.onResume();
         rules.tick();
         render();
+        loadMangaApps();
         checkForUpdate(false);
         installIfReady();
     }
@@ -292,6 +295,29 @@ public class MainActivity extends Activity {
             }));
         }
 
+        // ----- manga -----
+        header("Manga");
+        if (rules.mangaBlocked()) {
+            root.addView(text("ON: manga, manhwa and webtoon reading apps don't open, including ones you "
+                    + "install later, and manga sites are closed inside every app. General book apps "
+                    + "(Kindle, Play Books) are left alone.", 14));
+            TextView hit = text(mangaApps == null ? "Checking installed apps..."
+                    : mangaApps.isEmpty() ? "No installed app counts as a manga app right now."
+                    : "Installed apps this closes: " + String.join(", ", mangaApps) + ".", 12);
+            hit.setAlpha(0.6f);
+            root.addView(hit);
+            if (!rules.isPending(Rules.TYPE_MANGA, "")) {
+                root.addView(button("Allow manga (24h)",
+                        v -> confirmRemoval(Rules.TYPE_MANGA, "", "manga apps and sites")));
+            }
+        } else {
+            root.addView(text("OFF: manga apps and sites are not blocked.", 14));
+            root.addView(button("Block manga now", v -> {
+                rules.blockManga();
+                render();
+            }));
+        }
+
         // ----- all browsers -----
         header("All browsers");
         if (rules.allBrowsersBlocked()) {
@@ -359,6 +385,7 @@ public class MainActivity extends Activity {
                     : Rules.TYPE_BROWSERS.equals(p.type) ? "Allow browsers"
                     : Rules.TYPE_SIDELOAD.equals(p.type) ? "Allow installs from files"
                     : Rules.TYPE_MATURE.equals(p.type) ? "Allow mature content on Reddit"
+                    : Rules.TYPE_MANGA.equals(p.type) ? "Allow manga apps and sites"
                     : "Unblock " + (Rules.TYPE_APP.equals(p.type) ? label(p.value) : p.value);
             final int idx = i;
             root.addView(row(what + "\nin " + duration(p.remainingMs), "Cancel", v -> {
@@ -395,6 +422,26 @@ public class MainActivity extends Activity {
                 + "That's the honest limit of any app.", 12);
         ver.setAlpha(0.5f);
         root.addView(ver);
+    }
+
+    /** Finds the installed apps the manga rule closes, off the main thread, then redraws. */
+    private void loadMangaApps() {
+        final PackageManager pm = getPackageManager();
+        final String self = getPackageName();
+        new Thread(() -> {
+            List<String> found;
+            try {
+                found = Manga.installedApps(pm, self);
+            } catch (Throwable t) {
+                found = new ArrayList<>();
+            }
+            final List<String> result = found;
+            runOnUiThread(() -> {
+                boolean changed = !result.equals(mangaApps);
+                mangaApps = result;
+                if (changed && !isFinishing()) render();
+            });
+        }).start();
     }
 
     // ---------- actions ----------
