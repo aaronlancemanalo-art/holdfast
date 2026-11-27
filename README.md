@@ -49,7 +49,7 @@ The words and lists live in `Manga.java`. If an app or site is wrongly closed or
 
 ## Small windows
 
-Going home closes a full-screen app. It does not close a pop-up window, and an app can keep showing in a corner while another one is in front. So when something blocked is in a window that covers clearly less than the screen (a pop-up window, split screen), Holdfast presses Back on it before going home, and does so every time it is touched. If it is still there the fourth time within half an hour, Holdfast locks the screen instead and says why. A blocked app that keeps producing screens while another app is in front (five times within eight seconds) also gets the screen locked. A full-screen app is closed the way it always was, and protected Settings dialogs keep their own handling.
+Going home closes a full-screen app. It does not close a pop-up window, and an app can keep showing in a corner while another one is in front. So when something blocked is in a window that covers clearly less than the screen (a pop-up window, split screen), Holdfast presses Back on it before going home, and does so every time it is touched. If it is still there the fourth time within half an hour, Holdfast locks the screen instead and says why. A blocked app that keeps producing screens while another app is in front (five times within eight seconds) also gets the screen locked. A full-screen app is closed the way it always was, and protected Settings dialogs keep their own handling. Holdfast locks the screen at most six times in ten minutes; past that it closes things without locking, so a mistake in these rules can never leave the phone locked in a loop.
 
 ## Testing a change without the phone
 
@@ -76,7 +76,9 @@ Starting the phone in Safe mode switches every added app off, and Android leaves
 
 USB debugging left on outside that window closes every added app until it is switched off (the Developer options page stays reachable for that).
 
-**If Safe mode is blocked and something goes wrong**, the ways out are, in order: turning tamper protection off in Holdfast (24 hours), which also lets Safe mode through again; three crashes of Holdfast in a row, after which Safe mode is let through by itself; a factory reset. If Holdfast is ever removed by other means while the block is on, the phone's switch stays set, and `adb shell settings put global safe_boot_disallowed 0` clears it.
+The block screen always has an **Open Holdfast** button, so the update and the 24-hour way out stay one tap away whatever else is being closed. If the main screen itself fails to draw, a bare screen with those two things takes its place.
+
+**If Safe mode is blocked and something goes wrong**, the ways out are, in order: installing a fixed build from the Updates section; turning tamper protection off in Holdfast (24 hours), which also lets Safe mode through again; three crashes of Holdfast in a row, after which Safe mode is let through by itself; a factory reset. If Holdfast is ever removed by other means while the block is on, the phone's switch stays set, and `adb shell settings put global safe_boot_disallowed 0` clears it.
 
 ## Known escape hatches
 

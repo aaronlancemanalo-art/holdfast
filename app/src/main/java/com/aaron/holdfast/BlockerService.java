@@ -200,6 +200,13 @@ public class BlockerService extends AccessibilityService {
     private long behindSince = 0;
     private int behindCount = 0;
     private static final int STAYS_NO = 0, STAYS_BACK = 1, STAYS_LOCK_FRONT = 2, STAYS_LOCK_BEHIND = 3;
+    /**
+     * Holdfast locks the screen at most this often. Past that it blocks without locking, so
+     * that no mistake in these rules can ever leave the phone locked in a loop.
+     */
+    private static final int LOCKS_MAX = 6;
+    private static final long LOCKS_WINDOW_MS = 10L * 60 * 1000;
+    private final ArrayDeque<Long> lockTimes = new ArrayDeque<>();
     private final Map<String, Long> lastScan = new HashMap<>();
     /** Until when app-picker screens count as part of the sleeping-apps lists (uptime ms). */
     private long sleepListsUntil = 0;
@@ -831,7 +838,8 @@ public class BlockerService extends AccessibilityService {
             // A pinned app can't be sent home and nothing can open over it. Step back out of the
             // page and lock the screen instead.
             performGlobalAction(GLOBAL_ACTION_BACK);
-            if (Build.VERSION.SDK_INT >= 28) performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN);
+            if (Build.VERSION.SDK_INT < 28 || !mayLock(now)) return;
+            performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN);
             try {
                 Toast.makeText(this, "Blocked. This app is pinned, so Holdfast locked the screen. "
                         + "Unpin the app or restart the phone.", Toast.LENGTH_LONG).show();
@@ -842,6 +850,10 @@ public class BlockerService extends AccessibilityService {
         // Going home closes an ordinary full-screen app. It does not close a pop-up window, and
         // an app can keep showing in a corner while another one is in front.
         int stays = Build.VERSION.SDK_INT >= 28 ? windowThatStays(now) : STAYS_NO;
+        if ((stays == STAYS_LOCK_FRONT || stays == STAYS_LOCK_BEHIND) && !mayLock(now)) {
+            // Locked often enough for now: close it the ordinary way instead.
+            stays = stays == STAYS_LOCK_FRONT ? STAYS_BACK : STAYS_NO;
+        }
         if (stays == STAYS_LOCK_FRONT || stays == STAYS_LOCK_BEHIND) {
             if (stays == STAYS_LOCK_FRONT) performGlobalAction(GLOBAL_ACTION_BACK);
             performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN);
@@ -858,6 +870,14 @@ public class BlockerService extends AccessibilityService {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK)
                 .putExtra(BlockActivity.EXTRA_REASON, reason);
         startActivity(i);
+    }
+
+    /** True if the screen may be locked now. Counts the lock if so. */
+    private boolean mayLock(long now) {
+        while (!lockTimes.isEmpty() && now - lockTimes.peekFirst() > LOCKS_WINDOW_MS) lockTimes.pollFirst();
+        if (lockTimes.size() >= LOCKS_MAX) return false;
+        lockTimes.addLast(now);
+        return true;
     }
 
     /**

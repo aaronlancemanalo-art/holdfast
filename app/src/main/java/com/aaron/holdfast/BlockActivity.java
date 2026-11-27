@@ -58,6 +58,20 @@ public class BlockActivity extends Activity {
         ok.setOnClickListener(v -> finish());
         box.addView(ok);
 
+        // Always one tap from Holdfast itself: if blocking ever goes wrong, this is the way to
+        // the update and to the 24-hour way out, whatever else is being closed.
+        Button open = new Button(this);
+        open.setText("Open Holdfast");
+        open.setAllCaps(false);
+        open.setOnClickListener(v -> {
+            try {
+                startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Throwable ignored) {
+            }
+            finish();
+        });
+        box.addView(open);
+
         setContentView(box);
         bind(getIntent());
     }

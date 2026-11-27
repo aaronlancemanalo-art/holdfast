@@ -910,7 +910,21 @@ public class Scenarios {
         eq("small window: says why", Toast.shown.size() == 1 && Toast.shown.get(0).contains("small window"), true);
         Sim.advance(5000);
         content(REDDIT, pop);
-        eq("small window: locked again for as long as it stays", did(), "BACK,LOCK");
+        eq("small window: locked again while it stays", did(), "BACK,LOCK");
+        // Never a lock loop: after six locks in ten minutes it is closed without locking.
+        for (int i = 3; i <= 6; i++) {
+            Sim.advance(5000);
+            content(REDDIT, pop);
+            eq("small window: lock " + i, did(), "BACK,LOCK");
+        }
+        for (int i = 1; i <= 3; i++) {
+            Sim.advance(5000);
+            content(REDDIT, pop);
+            eq("small window: no more locks for now, time " + i, did(), "BACK,HOME|Reddit is blocked.");
+        }
+        Sim.advance(11L * 60 * 1000);
+        content(REDDIT, pop);
+        eq("small window: locks again later", did(), "BACK,LOCK");
         Sim.advance(31L * 60 * 1000);
         content(REDDIT, pop);
         eq("small window: much later it starts over", did(), "BACK,HOME|Reddit is blocked.");
@@ -980,6 +994,17 @@ public class Scenarios {
         Sim.advance(900);
         fire(REDDIT, 2048, null, chats, "com.whatsapp");
         eq("showing behind: counting starts again", did(), "HOME|Reddit is blocked.");
+        // The same limit on locks applies here: six in ten minutes, then none for a while.
+        int locks = 1, plain = 0;
+        for (int i = 0; i < 60; i++) {
+            Sim.advance(900);
+            fire(REDDIT, 2048, null, chats, "com.whatsapp");
+            String d = did();
+            if (d.equals("LOCK")) locks++;
+            else if (d.equals("HOME|Reddit is blocked.")) plain++;
+        }
+        eq("showing behind: never more than six locks in ten minutes", locks, 6);
+        eq("showing behind: the rest are ordinary blocks", plain, 55);
         // Now and then is not "keeps showing".
         fresh();
         svc.homeWorks = false;
