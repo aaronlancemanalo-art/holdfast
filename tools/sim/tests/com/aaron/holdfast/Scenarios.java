@@ -22,7 +22,12 @@ public class Scenarios {
 
     public static class Node extends AccessibilityNodeInfo {
         String cls, text, desc, id, hint, pkg;
+        int[] box; // left, top, right, bottom on a 1080 x 2340 screen; null = the whole screen
         List<Node> kids = new ArrayList<>();
+        Node box(int l, int t, int r, int b) { box = new int[]{l, t, r, b}; return this; }
+        @Override public void getBoundsInScreen(android.graphics.Rect out) {
+            if (box == null) out.set(0, 0, 1080, 2340); else out.set(box[0], box[1], box[2], box[3]);
+        }
         Node(String cls, String text) { this.cls = cls; this.text = text; }
         Node id(String v) { id = v; return this; }
         Node hint(String v) { hint = v; return this; }
@@ -883,6 +888,174 @@ public class Scenarios {
         win(MSGR, "BrowserLiteActivity", view(tv("mangadex.org"), web("One Piece", wv("Chapter 1"))));
         eq("site on his own list: plain reason", did(), "HOME|mangadex.org is blocked, in every app.");
         noError("manga rule wait");
+
+        // ---- windows that going home does not close (a pop-up window) ----
+        fresh();
+        svc.homeWorks = false; // the window stays where it is when Home is pressed
+        Node pop = view(tv("Home feed")).box(90, 300, 990, 1700);
+        win(REDDIT, "Main", pop);
+        eq("blocked app in a small window: stepped back out of", did(), "BACK,HOME|Reddit is blocked.");
+        for (int i = 2; i <= 3; i++) {
+            Sim.advance(900);
+            content(REDDIT, pop);
+            eq("small window, touch " + i + ": stepped back again", did(), "BACK,HOME|Reddit is blocked.");
+        }
+        eq("small window: no lock yet", Toast.shown.size(), 0);
+        Sim.advance(900);
+        content(REDDIT, pop);
+        eq("small window that keeps coming back: the screen locks", did(), "BACK,LOCK");
+        eq("small window: says why", Toast.shown.size() == 1 && Toast.shown.get(0).contains("small window"), true);
+        Sim.advance(5000);
+        content(REDDIT, pop);
+        eq("small window: locked again for as long as it stays", did(), "BACK,LOCK");
+        Sim.advance(31L * 60 * 1000);
+        content(REDDIT, pop);
+        eq("small window: much later it starts over", did(), "BACK,HOME|Reddit is blocked.");
+        noError("small window");
+        // Back closes most windows: then that is the end of it.
+        fresh();
+        svc.homeWorks = false;
+        svc.backLeaves = svc.homeRoot;
+        win(REDDIT, "Main", view(tv("Home feed")).box(90, 300, 990, 1700));
+        eq("small window that Back closes", did(), "BACK,HOME|Reddit is blocked.");
+        Sim.advance(3000);
+        eq("small window that Back closes: nothing more", did(), "");
+        svc.backLeaves = null;
+        // The same for every kind of block: a browser, a manga app, a blocked site in a viewer.
+        fresh();
+        svc.homeWorks = false;
+        svc.pm.add("jp.co.shueisha.mangaplus", "MANGA Plus", false, STORE, CUTOFF + 1000);
+        win("com.example.fastnet", "Main", view(tv("Start page")).box(0, 1170, 1080, 2340));
+        eq("browser in split screen", did(), "BACK,HOME|Fast Net is blocked (all browsers are).");
+        Sim.advance(3000); did();
+        win("jp.co.shueisha.mangaplus", "Main", view(tv("Updates")).box(90, 300, 990, 1700));
+        eq("manga app in a small window", did(), "BACK,HOME|MANGA Plus is a manga app, and manga is blocked.");
+        Sim.advance(3000); did();
+        win(MSGR, "BrowserLiteActivity", view(tv("old.reddit.com"), web("pics", wv("a post"))).box(0, 700, 1080, 2340));
+        eq("blocked site in a small viewer window", did(), "BACK,HOME|reddit.com is blocked, in every app.");
+        Sim.advance(3000); did();
+        win("com.whatsapp", "Main", view(tv("Chats")).box(90, 300, 990, 1700));
+        Sim.advance(3000);
+        eq("ordinary app in a small window is left alone", did(), "");
+        // A window just short of the whole screen is not small.
+        win(REDDIT, "Main", view(tv("Home feed")).box(0, 80, 1080, 2340));
+        eq("nearly full screen counts as full screen", did(), "HOME|Reddit is blocked.");
+        noError("small window kinds");
+
+        // An ordinary full-screen app is closed the old way, however often, and never locks.
+        fresh();
+        svc.homeWorks = false; // even when going home is slow
+        for (int i = 0; i < 8; i++) {
+            content(REDDIT, view(tv("Home feed")));
+            eq("full screen, time " + (i + 1), did(), "HOME|Reddit is blocked.");
+            Sim.advance(900);
+        }
+        eq("full screen: no lock", Toast.shown.size(), 0);
+        // Protected Settings dialogs are small windows too: they keep their own handling.
+        fresh();
+        svc.homeWorks = false;
+        for (int i = 0; i < 6; i++) {
+            win(SETTINGS, "SubSettings", page("Turn off Holdfast?", "Cancel", "Turn off").box(100, 900, 980, 1500));
+            starts("protected dialog, time " + (i + 1), did(), "BACK,HOME|Holdfast's settings are protected");
+            Sim.advance(3000); did();
+        }
+        eq("protected dialog: no lock", Toast.shown.size(), 0);
+        noError("full screen and dialogs");
+
+        // ---- a blocked app that keeps showing while another app is in front ----
+        fresh();
+        svc.homeWorks = false;
+        Node chats = view(tv("Chats"));
+        for (int i = 1; i <= 4; i++) {
+            fire(REDDIT, 2048, null, chats, "com.whatsapp");
+            eq("showing behind another app, time " + i, did(), "HOME|Reddit is blocked.");
+            Sim.advance(900);
+        }
+        fire(REDDIT, 2048, null, chats, "com.whatsapp");
+        eq("still showing after that: the screen locks", did(), "LOCK");
+        eq("showing behind: says why", Toast.shown.size(), 1);
+        Sim.advance(900);
+        fire(REDDIT, 2048, null, chats, "com.whatsapp");
+        eq("showing behind: counting starts again", did(), "HOME|Reddit is blocked.");
+        // Now and then is not "keeps showing".
+        fresh();
+        svc.homeWorks = false;
+        for (int i = 1; i <= 10; i++) {
+            fire(REDDIT, 2048, null, chats, "com.whatsapp");
+            eq("now and then, time " + i, did(), "HOME|Reddit is blocked.");
+            Sim.advance(3000);
+        }
+        eq("now and then: no lock", Toast.shown.size(), 0);
+        // Opening a blocked app the ordinary way: its first event can arrive while the home
+        // screen is still the window in front.
+        fresh();
+        for (int i = 1; i <= 10; i++) {
+            Node h = view(tv("Home screen"));
+            fire(REDDIT, 32, "Main", h, LAUNCHER);
+            eq("ordinary open, time " + i, did(), "HOME|Reddit is blocked.");
+            Sim.advance(2500);
+        }
+        eq("ordinary opens: no lock", Toast.shown.size(), 0);
+        noError("showing behind");
+
+        // ---- manga reader pages, whatever address they are served from ----
+        fresh();
+        win(MSGR, "BrowserLiteActivity", view(tv("One Piece - MangaDex").id("com.facebook.orca:id/title"), web(null, wv("page 1"))));
+        eq("reader site named in the viewer's title strip", did(), "HOME|This page is a manga reader, and manga is blocked in every app.");
+        Sim.advance(3000); did();
+        win(MSGR, "BrowserLiteActivity", view(tv("webproxy.example"), web("Read Solo Leveling Manga Online Free - Manganato", wv("page 1"))));
+        eq("reader site named in the page's own title", did(), "HOME|This page is a manga reader, and manga is blocked in every app.");
+        Sim.advance(3000); did();
+        win(MSGR, "BrowserLiteActivity", view(tv("some-name.example"), web("Solo Leveling",
+                wv("Home"), wv("Manga List"), wv("\u2190 Prev Chapter"), wv("Next Chapter \u2192"), wv("page 1"))));
+        eq("reader page by what is on it", did(), "HOME|This page is a manga reader, and manga is blocked in every app.");
+        Sim.advance(3000); did();
+        Node series = web("Solo Leveling", wv("Home"), wv("Read Manhwa Online"));
+        for (int i = 1; i <= 9; i++) series.add(wv("Chapter " + i));
+        win(MSGR, "BrowserLiteActivity", view(tv("some-name.example"), series));
+        eq("series page by its run of chapters", did(), "HOME|This page is a manga reader, and manga is blocked in every app.");
+        Sim.advance(3000); did();
+        win(CLAUDE, "MainActivity", view(tv("Chat")));
+        win(CHROME, TAB, view(tv("some-name.example").id("com.android.chrome:id/url_bar"),
+                web("Chapter 7", wv("Manga"), wv("Previous Chapter"), wv("Next Chapter"))));
+        eq("reader page in a Claude link tab", did(), "HOME|This page is a manga reader, and manga is blocked in every app.");
+        Sim.advance(3000); did();
+        // Pages that are not readers stay open.
+        win(MSGR, "BrowserLiteActivity", view(tv("doc.rust-lang.org"), web("The Rust Programming Language",
+                wv("Previous chapter"), wv("Next chapter"), wv("Chapter 1"), wv("Chapter 2"))));
+        Sim.advance(3000);
+        eq("online book with chapters", did(), "");
+        win(MSGR, "BrowserLiteActivity", view(tv("en.wikipedia.org"), web("Manga - Wikipedia",
+                wv("Manga"), wv("Manga are comics or graphic novels originating from Japan."), wv("Chapter 11"))));
+        Sim.advance(3000);
+        eq("article about manga", did(), "");
+        win(MSGR, "BrowserLiteActivity", view(tv("google.com/search?q=mangadex"), web("mangadex - Google Search",
+                wv("MangaDex"), wv("mangadex.org"), wv("Read manga online for free"))));
+        Sim.advance(3000);
+        eq("search for a reader site", did(), "");
+        win(MSGR, "BrowserLiteActivity", view(tv("shop.example"), web("One Piece Box Set | Shop",
+                wv("One Piece manga box set 1"), wv("Add to cart"), wv("Next"), wv("Previous"))));
+        Sim.advance(3000);
+        eq("shop page for a manga book", did(), "");
+        win(CLAUDE, "MainActivity", page("Manga List", "Prev Chapter", "Next Chapter", "Chapter 1", "Chapter 2"));
+        Sim.advance(3000);
+        eq("the same words in an app's own screen, not a web page", did(), "");
+        win(GOOGLE, ROBIN, view(edit(null).hint("Ask Gemini")));
+        Sim.advance(3000);
+        content(GOOGLE, view(edit("x").hint("Ask Gemini"), web("Answer", wv("Manga"), wv("Prev Chapter"), wv("Next Chapter"))));
+        Sim.advance(3000);
+        eq("gemini is judged by its own rules", did(), "");
+        // With the manga rule off, none of this applies.
+        Rules off = new Rules(svc);
+        off.requestRemoval(Rules.TYPE_MANGA, "");
+        Sim.advance(25L * 3600 * 1000);
+        off.tick();
+        did();
+        win(MSGR, "BrowserLiteActivity", view(tv("some-name.example"), web("One Piece - MangaDex",
+                wv("Manga List"), wv("Prev Chapter"), wv("Next Chapter"))));
+        Sim.advance(3000);
+        eq("reader page with the manga rule off", did(), "");
+        noError("manga pages");
 
         // ---- odds and ends ----
         fresh();

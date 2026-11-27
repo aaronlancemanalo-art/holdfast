@@ -7,8 +7,11 @@ public abstract class AccessibilityService extends android.content.Context {
     public AccessibilityNodeInfo getRootInActiveWindow() { return fakeRoot; }
     public AccessibilityNodeInfo homeRoot;
     public boolean homeWorks = true;
+    /** What Back leaves in front, when a test wants Back to close the window (null: Back changes nothing). */
+    public AccessibilityNodeInfo backLeaves;
     public boolean performGlobalAction(int a) {
         actions.add(a == 1 ? "BACK" : a == 2 ? "HOME" : a == 8 ? "LOCK" : "ACTION" + a);
+        if (a == 1 && backLeaves != null) fakeRoot = backLeaves;
         if (a == 2 && homeWorks) fakeRoot = homeRoot;
         return true;
     }

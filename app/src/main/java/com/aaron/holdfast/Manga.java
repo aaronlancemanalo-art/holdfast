@@ -13,6 +13,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -31,13 +32,14 @@ final class Manga {
     /** Words in an app's name or id that mark a reader. */
     private static final String[] APP_WORDS = {
             "manga", "manhwa", "manhua", "webtoon", "doujin", "comic", "comix", "komik",
-            "tachiyomi", "mihon", "aniyomi", "kotatsu",
+            "tachiyomi", "mihon", "aniyomi", "kotatsu", "cdisplay", "yacreader", "kuro reader",
+            "kuroreader", "suwayomi", "tachidesk",
             "\u6f2b\u753b", "\u6f2b\u756b", "\u30de\u30f3\u30ac", "\u307e\u3093\u304c",
             "\u30b3\u30df\u30c3\u30af", "\ub9cc\ud654", "\uc6f9\ud230"};
 
     /** Words in a site's name that mark a reader site. */
     private static final String[] SITE_WORDS = {
-            "manga", "manhwa", "manhua", "webtoon", "doujin", "hentai", "comick"};
+            "manga", "manhwa", "manhua", "webtoon", "doujin", "hentai", "comick", "readcomic"};
 
     /**
      * Longer words that only contain "manga" by accident: places and names, a metal, a school
@@ -67,7 +69,9 @@ final class Manga {
             "com.kakao.page",                  // KakaoPage
             "com.endyq.trackkun",              // MangaPin
             "com.rookiestudio.perfectviewer",  // Perfect Viewer
-            "com.rookiestudio.perfectviewerx"));
+            "com.rookiestudio.perfectviewerx",
+            "ani.dantotsu",                    // Dantotsu
+            "ani.saikou"));                    // Saikou
 
     /** Reader sites whose address doesn't carry one of the words above. */
     private static final String[] SITES = {
@@ -81,7 +85,8 @@ final class Manga {
             "manytoon.com", "hiperdex.com", "readm.today", "comix.to", "mgeko.cc", "cubari.moe",
             "tcbonepiecechapters.com", "shonenjumpplus.com", "comic-days.com", "comic-walker.com",
             "pocket.shonenmagazine.com", "tonarinoyj.jp", "sunday-webry.com", "comic.pixiv.net",
-            "comic.naver.com", "page.kakao.com", "ridibooks.com", "ac.qq.com"};
+            "comic.naver.com", "page.kakao.com", "ridibooks.com", "ac.qq.com", "atsu.moe",
+            "kagane.org", "hivetoon.com", "vortextoon.com", "mto.to", "dto.to", "hto.to"};
 
     /** Addresses a reader app answers for, used to recognise such an app by what it does. */
     private static final String[] LINK_HOSTS = {
@@ -137,6 +142,108 @@ final class Manga {
             }
         }
         return false;
+    }
+
+    // ---------- reader pages, recognised without their address ----------
+
+    /** Words a reader page uses about itself. */
+    private static final String[] PAGE_WORDS = {
+            "manga", "manhwa", "manhua", "webtoon", "scanlation", "doujin"};
+    /** The words on their own: what an article or a shop calls the thing, not the name of a site. */
+    private static final Set<String> BARE_WORDS = new HashSet<>(Arrays.asList(
+            "manga", "mangas", "manhwa", "manhwas", "manhua", "manhuas", "webtoon", "webtoons",
+            "mangaka", "mangakas", "doujin", "doujins", "doujinshi", "hentai"));
+    /** Reader sites by the name they sign their page titles with, where the name lacks the word. */
+    private static final Set<String> TITLE_NAMES = new HashSet<>(Arrays.asList(
+            "manga plus", "manga plus by shueisha", "mangaplus by shueisha", "k manga", "manga up!",
+            "bato.to", "batoto", "comick", "asura scans", "asura comics", "reaper scans",
+            "flame comics", "flame scans", "weeb central", "toonily", "tappytoon", "toomics",
+            "lezhin comics", "pocket comics", "inkr comics", "bilibili comics", "comikey",
+            "webcomics"));
+    /**
+     * Sites whose pages are titled "something - Site" for any something: a search for a reader
+     * site, a video or an article about one is not that reader site.
+     */
+    private static final String[] TITLE_HOSTS = {
+            "search", "google", "bing", "duckduckgo", "yandex", "ecosia", "startpage", "qwant",
+            "youtube", "wikipedia", "wiktionary", "fandom", "twitter", "facebook", "instagram",
+            "tiktok", "pinterest", "amazon", "github", "google play", "app store", "quora",
+            "linkedin", "imdb", "myanimelist", "anilist", "trustpilot"};
+    private static final Pattern TITLE_SPLIT = Pattern.compile("\\s+[-|\u2013\u2014\u00b7\u00bb]+\\s+|\\s*:+\\s+");
+
+    /**
+     * True for a page title signed by a reader site: "One Piece - MangaDex", "MangaFire - Read
+     * Manga Online", "Tower of God | WEBTOON". A title that merely uses the word ("Manga -
+     * Wikipedia", "Best manga of the year") is not.
+     */
+    static boolean isReaderTitle(String title) {
+        if (title == null) return false;
+        String t = title.trim().toLowerCase(Locale.ROOT);
+        if (t.isEmpty() || t.length() > 300) return false;
+        String[] parts = TITLE_SPLIT.split(t);
+        if (parts.length == 0) return false;
+        String last = parts[parts.length - 1].trim();
+        if (isSiteName(last, parts.length > 1)) return true;
+        if (parts.length < 2) return false;
+        for (String host : TITLE_HOSTS) {
+            if (last.contains(host)) return false;
+        }
+        return isSiteName(parts[0].trim(), false);
+    }
+
+    private static boolean isSiteName(String part, boolean lastOfSeveral) {
+        if (part.isEmpty() || part.length() > 40) return false;
+        if (TITLE_NAMES.contains(part)) return true;
+        if (part.indexOf(' ') >= 0) return false;
+        if (BARE_WORDS.contains(part)) {
+            // "Tower of God | WEBTOON" is the site; "Webtoon - Wikipedia" is an article about them.
+            return lastOfSeveral && part.startsWith("webtoon");
+        }
+        return says(part, SITE_WORDS);
+    }
+
+    private static final Pattern LEADING_MARKS = Pattern.compile("^[^a-z0-9]+");
+    private static final Pattern TURN = Pattern.compile(
+            "^(?:read\\s+)?(next|prev|previous|first|last|latest|newest)\\s+(?:chapter|chap|ch)\\b");
+    private static final Pattern CHAPTER_LIST = Pattern.compile("^(?:all\\s+chapters|chapters?\\s+list)\\b");
+    private static final Pattern CHAPTER = Pattern.compile(
+            "^(?:chapter|chap\\.?|ch\\.?)\\s*#?(\\d{1,4}(?:\\.\\d+)?)(?!\\d)");
+
+    /**
+     * What a web page shows of being a reader page, for sites whose name says nothing: it uses
+     * the word, and it has chapter-turning links or a run of numbered chapters. An article, a
+     * shop page or a search that only mentions manga has the word but not the rest; an online
+     * book with chapters has the rest but not the word.
+     */
+    static final class PageSigns {
+        private boolean word;
+        private final Set<String> turns = new HashSet<>();
+        private final Set<String> chapters = new HashSet<>();
+
+        /** Takes one piece of text from the page (lower case; may be null). */
+        void read(String t) {
+            if (t == null || t.isEmpty() || t.length() > 80) return;
+            if (!word && says(t, PAGE_WORDS)) word = true;
+            if (t.length() > 60) return;
+            String s = LEADING_MARKS.matcher(t).replaceFirst("");
+            Matcher m = TURN.matcher(s);
+            if (m.find()) {
+                turns.add(m.group(1).startsWith("prev") ? "prev" : m.group(1));
+                return;
+            }
+            if (CHAPTER_LIST.matcher(s).find()) {
+                turns.add("list");
+                return;
+            }
+            m = CHAPTER.matcher(s);
+            if (m.find()) chapters.add(m.group(1));
+        }
+
+        boolean isReader() {
+            return word && (turns.size() >= 2
+                    || (turns.size() >= 1 && chapters.size() >= 1)
+                    || chapters.size() >= 8);
+        }
     }
 
     /** Every app that opens ordinary web links or answers a web search: browsers, in effect. */

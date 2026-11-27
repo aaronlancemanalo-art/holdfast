@@ -310,7 +310,57 @@ public class Checks {
         for (String h : notMangaSites) eq("not a manga site: " + h, Manga.isSite(h), false);
         eq("not a manga site: nothing", Manga.isSite(null), false);
 
+        // ---- manga: more readers by name ----
+        String[][] moreReaders = {{"com.progdigy.cdisplay.free", "CDisplayEx"}, {"com.example.yac", "YACReader"},
+                {"com.example.kuro", "Kuro Reader"}, {"ani.dantotsu", "Dantotsu"}, {"com.example.suwa", "Suwayomi"}};
+        for (String[] x : moreReaders) eq("manga app: " + x[0], Manga.isApp(x[0], x[1]), true);
+
+        // ---- manga: a page title signed by a reader site ----
+        String[] readerTitles = {"One Piece - MangaDex", "MangaDex", "Read Solo Leveling Manga Online Free - Manganato",
+                "MangaFire - Read Manga Online Free", "Tower of God | WEBTOON", "MANGA Plus by SHUEISHA",
+                "One Piece - MANGA Plus by SHUEISHA", "Chapter 12 - Bato.To", "Solo Leveling \u2013 Asura Scans",
+                "Nano Machine | Reaper Scans", "ReadManhwa: Chapter 3", "one piece chapter 1100 :: kunmanga",
+                "Omniscient Reader - Toonily", "Comick"};
+        for (String t : readerTitles) eq("reader title: " + t, Manga.isReaderTitle(t), true);
+        String[] otherTitles = {"Manga - Wikipedia", "Manga", "Webtoon - Wikipedia", "Mangaka - Wikipedia",
+                "Mangalore - Wikipedia", "Best manga of 2026 | The Verge", "One Piece (manga) - Wikipedia",
+                "mangadex - Google Search", "MangaDex - Wikipedia", "MangaDex - YouTube", "mangadex at DuckDuckGo",
+                "manga - Google Search", "Manganese - Wikipedia", "One Piece, Vol. 1: Amazon.com: Books",
+                "Chapter 1105 | One Piece Wiki | Fandom", "Hangman Game - Play Online", "Inbox - Gmail", "",
+                "Webtoon", "The Manga Guide to Databases | No Starch Press", "Holcim Qatar", "Claude"};
+        for (String t : otherTitles) eq("not a reader title: " + t, Manga.isReaderTitle(t), false);
+        eq("not a reader title: nothing", Manga.isReaderTitle(null), false);
+
+        // ---- manga: a page that is a reader by what is on it ----
+        eq("page: word and both turns", signs("manga list", "\u2190 prev chapter", "next chapter \u2192"), true);
+        eq("page: previous spelt out counts once", signs("read manga online", "prev chapter", "previous chapter"), false);
+        eq("page: one turn and a numbered chapter", signs("manhwa", "next chapter", "chapter 12"), true);
+        eq("page: a run of chapters", signs("home / manga / solo leveling", "chapter 1", "chapter 2", "chapter 3",
+                "chapter 4", "chapter 5", "ch. 6", "chapter 7", "chapter 8: the gate"), true);
+        eq("page: chapter list link", signs("webtoon", "chapter list", "chapter 3"), true);
+        eq("page: same chapter many times", signs("manga", "chapter 5", "chapter 5", "ch. 5", "chapter 5 raw"), false);
+        eq("page: seven chapters is not a run", signs("manga", "chapter 1", "chapter 2", "chapter 3", "chapter 4",
+                "chapter 5", "chapter 6", "chapter 7"), false);
+        eq("page: online book, no such word", signs("the rust programming language", "previous chapter",
+                "next chapter", "chapter 1", "chapter 2"), false);
+        eq("page: article about manga", signs("manga", "manga are comics or graphic novels from japan",
+                "chapter 11 bankruptcy"), false);
+        eq("page: shop", signs("one piece manga box set", "add to cart", "next", "previous"), false);
+        eq("page: a long sentence is not a link", signs("manga",
+                "next chapter of the story will be told in the coming months as the company restructures itself",
+                "previous chapter of the saga ended last year when the board decided to sell the business"), false);
+        eq("page: place name is not the word", signs("mangalore news", "next chapter", "prev chapter"), false);
+        eq("page: next channel is not a chapter", signs("manga", "next channel", "previous channel"), false);
+        eq("page: empty", signs(), false);
+
         System.out.println(passes + " passed, " + fails + " failed");
         if (fails > 0) System.exit(1);
+    }
+
+    static boolean signs(String... texts) {
+        Manga.PageSigns s = new Manga.PageSigns();
+        for (String t : texts) s.read(t);
+        s.read(null);
+        return s.isReader();
     }
 }

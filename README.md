@@ -43,8 +43,13 @@ One rule, on by default, with the same 24-hour wait to switch off. While it is o
 
 - **Reading apps don't open.** An app counts as one if its name or id says so (manga, manhwa, manhua, webtoon, comic and similar words, in several languages), if it is on a built-in list of known readers whose names don't say it (Tapas, Toomics, Shonen Jump and others), or if it opens links to a reader site itself without being a general browser. That covers apps installed later too. Apps that came with the phone are never counted, and general book apps (Kindle, Play Books) are left alone. The Manga section of the app lists the installed apps the rule currently closes.
 - **Reader sites are closed inside every app**, the same way a blocked site is: when the address shown above a web page is a reader site. That is judged by the site's name only (a name with manga, manhwa, manhua or webtoon in it, a translation group's "...scans" site, or one on a built-in list), so a search for the word, a shop page for a book, or an article about manga stays open.
+- **A reader page is also recognised without its address**, for viewers that show none and for sites whose name says nothing: by the site name a page title is signed with ("One Piece - MangaDex"), or by what is on the page (it uses the word, and it has chapter-turning links or a run of numbered chapters). An online book with chapters, or an article that mentions manga, has only one of the two and stays open.
 
 The words and lists live in `Manga.java`. If an app or site is wrongly closed or wrongly left open, that file is where to fix it.
+
+## Small windows
+
+Going home closes a full-screen app. It does not close a pop-up window, and an app can keep showing in a corner while another one is in front. So when something blocked is in a window that covers clearly less than the screen (a pop-up window, split screen), Holdfast presses Back on it before going home, and does so every time it is touched. If it is still there the fourth time within half an hour, Holdfast locks the screen instead and says why. A blocked app that keeps producing screens while another app is in front (five times within eight seconds) also gets the screen locked. A full-screen app is closed the way it always was, and protected Settings dialogs keep their own handling.
 
 ## Testing a change without the phone
 

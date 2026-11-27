@@ -11,4 +11,6 @@ public class AccessibilityNodeInfo {
     public int getChildCount() { return 0; }
     public AccessibilityNodeInfo getChild(int i) { return null; }
     public List<AccessibilityNodeInfo> findAccessibilityNodeInfosByViewId(String id) { return null; }
+    /** A whole screen unless a test says otherwise. */
+    public void getBoundsInScreen(android.graphics.Rect out) { out.set(0, 0, 1080, 2340); }
 }

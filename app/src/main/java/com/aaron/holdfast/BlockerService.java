@@ -12,11 +12,13 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.util.DisplayMetrics;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Toast;
@@ -148,6 +150,8 @@ public class BlockerService extends AccessibilityService {
     private final Map<String, Boolean> redditClientCache = new HashMap<>();
     /** Stands in the set of blocked sites for "every manga reader site" while that rule is on. */
     private static final String MANGA_SITES = "*manga";
+    /** Returned in place of a site name for a page that is a manga reader by its title or layout. */
+    private static final String MANGA_PAGE = "*manga page";
     private final Map<String, Boolean> mangaAppCache = new HashMap<>();
     /** Apps that open manga site links themselves without being a general browser. */
     private Set<String> mangaLinkApps = new HashSet<>();
@@ -176,6 +180,24 @@ public class BlockerService extends AccessibilityService {
             "com.sec.android.app.samsungapps")); // Galaxy Store
     private long lastBlockAt = 0;
     private String lastBlockReason = "";
+
+    /** The app being closed, when that is decided by the app and not by the window in front. */
+    private String blockSubject;
+    /** A window that covers less of the screen than this (percent) is a small window. */
+    private static final int SMALL_WINDOW_PERCENT = 92;
+    /** A blocked thing in a small window is stepped back out of this many times, then the screen locks. */
+    private static final int SMALL_TRIES = 3;
+    private static final long SMALL_MEMORY_MS = 30L * 60 * 1000;
+    private String smallPkg = "";
+    private long smallAt = 0;
+    private int smallCount = 0;
+    /** A blocked app that keeps producing screens this often without being in front gets the screen locked. */
+    private static final int BEHIND_TRIES = 5;
+    private static final long BEHIND_WINDOW_MS = 8000;
+    private String behindPkg = "";
+    private long behindSince = 0;
+    private int behindCount = 0;
+    private static final int STAYS_NO = 0, STAYS_BACK = 1, STAYS_LOCK_FRONT = 2, STAYS_LOCK_BEHIND = 3;
     private final Map<String, Long> lastScan = new HashMap<>();
     /** Until when app-picker screens count as part of the sleeping-apps lists (uptime ms). */
     private long sleepListsUntil = 0;
@@ -369,7 +391,7 @@ public class BlockerService extends AccessibilityService {
 
         // 1. Blocked apps
         if (rules.getApps().contains(pkg) && !claudeTab) {
-            block(appLabel(pkg) + " is blocked.");
+            blockApp(pkg, appLabel(pkg) + " is blocked.");
             return;
         }
 
@@ -413,26 +435,26 @@ public class BlockerService extends AccessibilityService {
         if (!claudeTab && !geminiApp && rules.allBrowsersBlocked()
                 && (browserPackages().contains(pkg) || WEB_APP_PKGS.contains(pkg)
                     || isNamedLikeBrowser(pkg))) {
-            block(appLabel(pkg) + " is blocked (all browsers are).");
+            blockApp(pkg, appLabel(pkg) + " is blocked (all browsers are).");
             return;
         }
 
         // 1c. Other Reddit apps, while reddit.com is blocked
         if (rules.getSites().contains("reddit.com") && isRedditClient(pkg)) {
-            block(appLabel(pkg) + " is a Reddit app, and Reddit is blocked.");
+            blockApp(pkg, appLabel(pkg) + " is a Reddit app, and Reddit is blocked.");
             return;
         }
 
         // 1g. Manga reading apps, by name, by a list of known ones, or by what they do
         if (rules.mangaBlocked() && isMangaApp(pkg)) {
-            block(appLabel(pkg) + " is a manga app, and manga is blocked.");
+            blockApp(pkg, appLabel(pkg) + " is a manga app, and manga is blocked.");
             return;
         }
 
         // 1d. Apps installed from a file (whatever app delivered the file) can't be opened
         if (rules.sideloadBlocked()) haveSideloadList(); // made on the first event, before any app is judged
         if (rules.sideloadBlocked() && isNewSideloadedApp(pkg)) {
-            block(appLabel(pkg) + " was installed from a file, not an app store, so it's blocked.");
+            blockApp(pkg, appLabel(pkg) + " was installed from a file, not an app store, so it's blocked.");
             return;
         }
 
@@ -737,6 +759,16 @@ public class BlockerService extends AccessibilityService {
         block(reason, false);
     }
 
+    /** Closes an app because of what it is, whether or not it is the window in front right now. */
+    private void blockApp(String pkg, String reason) {
+        blockSubject = pkg;
+        try {
+            block(reason, false);
+        } finally {
+            blockSubject = null;
+        }
+    }
+
     /** @param stepBack press Back before going home, to close the page or dialog itself */
     private void block(String reason, boolean stepBack) {
         long now = SystemClock.uptimeMillis();
@@ -759,12 +791,80 @@ public class BlockerService extends AccessibilityService {
             }
             return;
         }
-        if (stepBack) performGlobalAction(GLOBAL_ACTION_BACK);
+        // Going home closes an ordinary full-screen app. It does not close a pop-up window, and
+        // an app can keep showing in a corner while another one is in front.
+        int stays = Build.VERSION.SDK_INT >= 28 ? windowThatStays(now) : STAYS_NO;
+        if (stays == STAYS_LOCK_FRONT || stays == STAYS_LOCK_BEHIND) {
+            if (stays == STAYS_LOCK_FRONT) performGlobalAction(GLOBAL_ACTION_BACK);
+            performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN);
+            try {
+                Toast.makeText(this, "Blocked, but still open in a small window, so Holdfast locked "
+                        + "the screen. Close that window, or restart the phone.", Toast.LENGTH_LONG).show();
+            } catch (Throwable ignored) {
+            }
+            return;
+        }
+        if (stepBack || stays == STAYS_BACK) performGlobalAction(GLOBAL_ACTION_BACK);
         performGlobalAction(GLOBAL_ACTION_HOME);
         Intent i = new Intent(this, BlockActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK)
                 .putExtra(BlockActivity.EXTRA_REASON, reason);
         startActivity(i);
+    }
+
+    /**
+     * Decides what a block has to do about a window that going home won't close.
+     *  - The thing being closed is in front in a small window (a pop-up window, split screen):
+     *    step back out of it first. Back goes to the window in front, so it lands on that
+     *    window and nothing else. If it keeps coming back, lock the screen.
+     *  - A blocked app keeps producing screens while some other window is in front (it is still
+     *    showing somewhere): after several in a row, lock the screen.
+     * An ordinary full-screen window needs neither, and nothing here changes for it.
+     */
+    private int windowThatStays(long now) {
+        try {
+            AccessibilityNodeInfo front = getRootInActiveWindow();
+            String frontPkg = front == null || front.getPackageName() == null
+                    ? null : front.getPackageName().toString();
+            String who = blockSubject != null ? blockSubject : frontPkg;
+            if (who == null || who.equals(getPackageName())) return STAYS_NO;
+            // Settings, installer and power menu screens are dialogs as often as pages, and the
+            // protected ones are already stepped back out of.
+            if (SETTINGS_PKGS.contains(who) || INSTALLER_PKGS.contains(who)
+                    || SYSTEM_UI_PKGS.contains(who)) return STAYS_NO;
+            if (who.equals(frontPkg)) {
+                if (!isSmallWindow(front)) return STAYS_NO;
+                if (!who.equals(smallPkg) || now - smallAt > SMALL_MEMORY_MS) {
+                    smallPkg = who;
+                    smallCount = 0;
+                }
+                smallAt = now;
+                smallCount++;
+                return smallCount > SMALL_TRIES ? STAYS_LOCK_FRONT : STAYS_BACK;
+            }
+            if (!who.equals(behindPkg) || now - behindSince > BEHIND_WINDOW_MS) {
+                behindPkg = who;
+                behindSince = now;
+                behindCount = 0;
+            }
+            behindCount++;
+            if (behindCount < BEHIND_TRIES) return STAYS_NO;
+            behindCount = 0;
+            behindSince = now;
+            return STAYS_LOCK_BEHIND;
+        } catch (Throwable t) {
+            return STAYS_NO;
+        }
+    }
+
+    /** True if this window covers clearly less than the whole screen. */
+    private boolean isSmallWindow(AccessibilityNodeInfo root) {
+        Rect b = new Rect();
+        root.getBoundsInScreen(b);
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        long window = (long) b.width() * b.height();
+        long screen = (long) dm.widthPixels * dm.heightPixels;
+        return window > 0 && screen > 0 && window * 100 < screen * SMALL_WINDOW_PERCENT;
     }
 
     /** True while an app is pinned to the screen (Android's "Pin app"). */
@@ -1468,6 +1568,7 @@ public class BlockerService extends AccessibilityService {
     private static String blockedSiteInWebViewer(AccessibilityNodeInfo root, Set<String> sites,
                                                  boolean countLinks) {
         boolean reddit = sites.contains("reddit.com");
+        boolean manga = sites.contains(MANGA_SITES);
         boolean webPage = false;
         String hit = null;
         int pagesRead = 0;
@@ -1486,7 +1587,9 @@ public class BlockerService extends AccessibilityService {
                 if (pagesRead < 3) {
                     pagesRead++;
                     HashSet<String> links = countLinks ? new HashSet<String>() : null;
-                    String inside = blockedSiteInsidePage(n, 0, new int[]{WEB_NODE_BUDGET}, links, sites, reddit);
+                    Manga.PageSigns signs = manga ? new Manga.PageSigns() : null;
+                    String inside = blockedSiteInsidePage(n, 0, new int[]{WEB_NODE_BUDGET}, links, sites,
+                            reddit, signs);
                     if (inside != null) return inside;
                 }
                 continue; // the page is read by the call above, not by this walk
@@ -1504,6 +1607,10 @@ public class BlockerService extends AccessibilityService {
                     // A title strip above the page that carries Reddit's page title.
                     if (hit == null && reddit && idContains(n, "title") && isRedditTitle(s)) {
                         hit = "reddit.com";
+                    }
+                    // The same strip carrying a manga reader site's page title.
+                    if (hit == null && manga && idContains(n, "title") && Manga.isReaderTitle(s)) {
+                        hit = MANGA_PAGE;
                     }
                 }
             }
@@ -1526,15 +1633,27 @@ public class BlockerService extends AccessibilityService {
      * Ordinary text and links are not addresses and are ignored.
      */
     private static String blockedSiteInsidePage(AccessibilityNodeInfo n, int depth, int[] budget,
-                                                HashSet<String> links, Set<String> sites, boolean reddit) {
+                                                HashSet<String> links, Set<String> sites, boolean reddit,
+                                                Manga.PageSigns signs) {
         if (n == null || budget[0] <= 0 || depth > 60) return null;
         budget[0]--;
         String t = lower(n.getText());
+        String d = reddit || signs != null ? lower(n.getContentDescription()) : null;
+        // The page's title sits on the page's top node (the viewer itself, or the page node
+        // directly inside it). Text further in is the page's content, not its title.
+        boolean titleNode = depth == 0 || (depth <= 2 && isWebNode(n));
+        if (signs != null) {
+            // A manga reader page, whatever address it is served from: by the site name in its
+            // title, or by what is on it (see Manga.PageSigns).
+            if (titleNode && (Manga.isReaderTitle(t) || Manga.isReaderTitle(d))) return MANGA_PAGE;
+            if (!titleNode) {
+                signs.read(t);
+                signs.read(d);
+                if (signs.isReader()) return MANGA_PAGE;
+            }
+        }
         if (reddit) {
-            String d = lower(n.getContentDescription());
-            // The page's title sits on the page's top node (the viewer itself, or the page node
-            // directly inside it). Text further in is the page's content, not its title.
-            if ((depth == 0 || (depth <= 2 && isWebNode(n))) && (isRedditTitle(t) || isRedditTitle(d))) {
+            if (titleNode && (isRedditTitle(t) || isRedditTitle(d))) {
                 return "reddit.com";
             }
             if (links != null) {
@@ -1552,7 +1671,7 @@ public class BlockerService extends AccessibilityService {
         }
         int count = Math.min(n.getChildCount(), 80);
         for (int i = 0; i < count && budget[0] > 0; i++) {
-            String hit = blockedSiteInsidePage(n.getChild(i), depth + 1, budget, links, sites, reddit);
+            String hit = blockedSiteInsidePage(n.getChild(i), depth + 1, budget, links, sites, reddit, signs);
             if (hit != null) return hit;
         }
         return null;
@@ -1654,6 +1773,9 @@ public class BlockerService extends AccessibilityService {
 
     /** What the block screen says about a site. */
     private String siteReason(String site, boolean everyApp) {
+        if (MANGA_PAGE.equals(site)) {
+            return "This page is a manga reader, and manga is blocked" + (everyApp ? " in every app." : ".");
+        }
         if (rules.mangaBlocked() && !rules.getSites().contains(site) && Manga.isSite(site)) {
             return site + " is a manga site, and manga is blocked" + (everyApp ? " in every app." : ".");
         }
