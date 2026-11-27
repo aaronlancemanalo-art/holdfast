@@ -63,6 +63,9 @@ public class Scenarios {
     static void fresh() {
         Sim.reset();
         Context.prefs.clear();
+        Context.secureSettingsGranted = false;
+        Context.jobs = new android.app.job.JobScheduler();
+        android.provider.Settings.reset();
         Toast.shown.clear();
         BlockerService.instance = null;
         svc = new BlockerService();
@@ -1056,6 +1059,247 @@ public class Scenarios {
         Sim.advance(3000);
         eq("reader page with the manga rule off", did(), "");
         noError("manga pages");
+
+        // ---- short openings in the rules end with the restart they were opened in ----
+        fresh();
+        Rules wr = new Rules(svc);
+        wr.openSelfUpdateWindow();
+        wr.openSetupWindow();
+        wr.openInstallPermissionWindow();
+        eq("openings: open", wr.inSelfUpdateWindow() && wr.inSetupWindow() && wr.inInstallPermissionWindow(), true);
+        Sim.restart(); // the uptime clock starts over, far below the old closing times
+        Rules wr2 = new Rules(svc);
+        eq("openings: a restart closes them", wr2.inSelfUpdateWindow() || wr2.inSetupWindow() || wr2.inInstallPermissionWindow(), false);
+        wr2.openSelfUpdateWindow();
+        eq("openings: work again after the restart", wr2.inSelfUpdateWindow(), true);
+        Sim.advance(121_000);
+        eq("openings: and still run out", wr2.inSelfUpdateWindow(), false);
+
+        // ---- the one-time laptop setup ----
+        final String LIST = "enabled_accessibility_services";
+        final String ME = "com.aaron.holdfast/com.aaron.holdfast.BlockerService";
+        fresh();
+        Rules lr = new Rules(svc);
+        win(SETTINGS, "SubSettings", page("Developer options", "USB debugging", "Stay awake", "Running services"));
+        starts("laptop setup: developer options blocked before", did(), "BACK,HOME|Developer options are protected");
+        lr.requestRemoval(Rules.TYPE_LAPTOP, "");
+        eq("laptop setup: waiting", lr.isPending(Rules.TYPE_LAPTOP, "") && !lr.inLaptopWindow(), true);
+        Sim.advance(23L * 3600 * 1000);
+        lr.tick();
+        eq("laptop setup: not open at 23 hours", lr.inLaptopWindow(), false);
+        win(SETTINGS, "SubSettings", page("Developer options", "USB debugging", "Stay awake", "Running services"));
+        starts("laptop setup: still blocked during the wait", did(), "BACK,HOME|Developer options are protected");
+        Sim.advance(2L * 3600 * 1000);
+        lr.tick();
+        eq("laptop setup: ready after 24 hours, window not open by itself", lr.laptopReady() && !lr.inLaptopWindow(), true);
+        did();
+        win(SETTINGS, "SubSettings", page("Developer options", "USB debugging", "Stay awake", "Running services"));
+        starts("laptop setup: ready is not open", did(), "BACK,HOME|Developer options are protected");
+        Sim.advance(5L * 3600 * 1000); // he gets to his laptop some hours later
+        eq("laptop setup: he opens the window", lr.openLaptopWindow(), true);
+        eq("laptop setup: window open", lr.inLaptopWindow(), true);
+        eq("laptop setup: for an hour", lr.laptopWindowLeftMs() > 59 * 60_000L && lr.laptopWindowLeftMs() <= 60 * 60_000L, true);
+        eq("laptop setup: it can be opened once", lr.laptopReady() || lr.openLaptopWindow(), false);
+        did();
+        win(SETTINGS, "SubSettings", page("Developer options", "USB debugging", "Stay awake", "Running services"));
+        Sim.advance(3000);
+        eq("laptop window: developer options open", did(), "");
+        win(SETTINGS, "AlertDialog", page("Allow USB debugging?", "USB debugging is intended for development purposes only.", "Cancel", "OK"));
+        Sim.advance(3000);
+        eq("laptop window: usb debugging prompt open", did(), "");
+        win(SETTINGS, "SubSettings", page("Holdfast", "Force stop", "Uninstall"));
+        starts("laptop window: holdfast's own page still protected", did(), "BACK,HOME|Holdfast's settings are protected");
+        Sim.advance(3000); did();
+        win("com.example.fastnet", "Main", view());
+        eq("laptop window: browsers still blocked", did(), "HOME|Fast Net is blocked (all browsers are).");
+        Sim.advance(3000); did();
+        // He switches USB debugging on and the laptop sends the command.
+        android.provider.Settings.global.put("development_settings_enabled", "1");
+        android.provider.Settings.global.put("adb_enabled", "1");
+        win("com.whatsapp", "Main", view(tv("Chats")));
+        Sim.advance(3000);
+        eq("laptop window: usb debugging on is fine while it is open", did(), "");
+        Context.secureSettingsGranted = true;
+        win("com.whatsapp", "Main", view(tv("Chats")));
+        eq("setup done: window closed", lr.inLaptopWindow(), false);
+        eq("setup done: usb debugging switched off", android.provider.Settings.global.get("adb_enabled"), "0");
+        eq("setup done: developer options back off, as they were", android.provider.Settings.global.get("development_settings_enabled"), "0");
+        eq("setup done: says so", Toast.shown.size() == 1 && Toast.shown.get(0).contains("Self-repair is set up"), true);
+        Sim.advance(3000); did();
+        win(SETTINGS, "SubSettings", page("Developer options", "USB debugging", "Stay awake", "Running services"));
+        starts("setup done: developer options protected again", did(), "BACK,HOME|Developer options are protected");
+        noError("laptop setup");
+
+        // The window is given up, or runs out, with USB debugging left on.
+        fresh();
+        Rules lr2 = new Rules(svc);
+        eq("laptop window can't be opened without the wait", lr2.openLaptopWindow(), false);
+        lr2.requestRemoval(Rules.TYPE_LAPTOP, "");
+        eq("laptop window can't be opened during the wait", lr2.openLaptopWindow(), false);
+        Sim.advance(25L * 3600 * 1000);
+        lr2.openLaptopWindow();
+        android.provider.Settings.global.put("adb_enabled", "1");
+        eq("abandoned setup: window open", lr2.inLaptopWindow(), true);
+        Sim.advance(61L * 60 * 1000);
+        eq("abandoned setup: window ran out", lr2.inLaptopWindow(), false);
+        did();
+        win("com.whatsapp", "Main", view(tv("Chats")));
+        eq("usb debugging left on: other apps are closed", did(), "HOME|USB debugging is on. Switch it off first: Settings > Developer options.");
+        Sim.advance(3000); did();
+        win(SETTINGS, "SubSettings", page("Developer options", "USB debugging", "Stay awake", "Running services"));
+        Sim.advance(3000);
+        eq("usb debugging left on: developer options reachable to switch it off", did(), "");
+        win(LAUNCHER, "Launcher", view(tv("Home screen")));
+        Sim.advance(3000);
+        eq("usb debugging left on: home screen left alone", did(), "");
+        svc.pm.add("com.samsung.android.incallui", "Call", true, null, 0);
+        win("com.samsung.android.incallui", "InCallActivity", view(tv("Incoming call")));
+        Sim.advance(3000);
+        eq("usb debugging left on: calls left alone", did(), "");
+        android.provider.Settings.global.put("adb_enabled", "0");
+        win("com.whatsapp", "Main", view(tv("Chats")));
+        Sim.advance(3000);
+        eq("usb debugging off again: apps open", did(), "");
+        win(SETTINGS, "SubSettings", page("Developer options", "USB debugging", "Stay awake", "Running services"));
+        starts("usb debugging off again: developer options protected", did(), "BACK,HOME|Developer options are protected");
+        // Closing the window by hand also drops a wait for it, and a restart closes it.
+        Rules lr3 = new Rules(svc);
+        lr3.requestRemoval(Rules.TYPE_LAPTOP, "");
+        lr3.closeLaptopWindow();
+        eq("closing the window drops the wait", lr3.isPending(Rules.TYPE_LAPTOP, ""), false);
+        lr3.requestRemoval(Rules.TYPE_LAPTOP, "");
+        Sim.advance(25L * 3600 * 1000);
+        lr3.tick();
+        eq("ready again", lr3.laptopReady(), true);
+        Sim.restart();
+        Rules lr4 = new Rules(svc);
+        eq("being ready survives a restart", lr4.laptopReady(), true);
+        lr4.openLaptopWindow();
+        eq("window open again", lr4.inLaptopWindow(), true);
+        Sim.restart();
+        eq("a restart closes the laptop window", new Rules(svc).inLaptopWindow(), false);
+        // Ready, but never opened: it lapses after a day.
+        Rules lr5 = new Rules(svc);
+        lr5.requestRemoval(Rules.TYPE_LAPTOP, "");
+        Sim.advance(25L * 3600 * 1000);
+        lr5.tick();
+        eq("ready a third time", lr5.laptopReady(), true);
+        Sim.advance(23L * 3600 * 1000);
+        lr5.tick();
+        eq("still ready 23 hours on", lr5.laptopReady(), true);
+        Sim.advance(2L * 3600 * 1000);
+        lr5.tick();
+        eq("lapsed after a day unused", lr5.laptopReady() || lr5.openLaptopWindow() || lr5.inLaptopWindow(), false);
+        noError("laptop setup given up");
+
+        // ---- self-repair ----
+        fresh();
+        Rules rr2 = new Rules(svc);
+        android.provider.Settings.secure.put(LIST, "com.other/.Svc"); // Holdfast was switched off, as after Safe mode
+        Repair.apply(svc, rr2);
+        eq("no permission: nothing is touched", android.provider.Settings.writes.toString(), "[]");
+        eq("no permission: not listed", Repair.serviceListed(svc), false);
+        Context.secureSettingsGranted = true;
+        Repair.apply(svc, rr2);
+        eq("repair: holdfast back on the list, others kept", android.provider.Settings.secure.get(LIST), "com.other/.Svc:" + ME);
+        eq("repair: accessibility switched on", android.provider.Settings.secure.get("accessibility_enabled"), "1");
+        android.provider.Settings.writes.clear();
+        Repair.apply(svc, rr2);
+        eq("repair: nothing to do the second time", android.provider.Settings.writes.toString(), "[]");
+        android.provider.Settings.secure.put(LIST, "com.aaron.holdfast/.BlockerService");
+        Repair.apply(svc, rr2);
+        eq("repair: short spelling counts as listed", android.provider.Settings.secure.get(LIST), "com.aaron.holdfast/.BlockerService");
+        // After a restart, and every quarter of an hour.
+        android.provider.Settings.secure.remove(LIST);
+        new BootReceiver().onReceive(svc, new Intent());
+        eq("repair after a restart", android.provider.Settings.secure.get(LIST), ME);
+        eq("repair: look scheduled every quarter of an hour",
+                Context.jobs.pending != null && Context.jobs.pending.period == 15 * 60 * 1000L && Context.jobs.pending.persisted, true);
+        // Switched off by hand while tamper protection is on: it comes straight back.
+        android.provider.Settings.secure.put(LIST, "");
+        svc.onUnbind(new Intent());
+        eq("switched off by hand: off for a moment", Repair.serviceListed(svc), false);
+        Sim.advance(500);
+        eq("switched off by hand: back on", android.provider.Settings.secure.get(LIST), ME);
+        // USB debugging is kept off once Holdfast can do that itself.
+        fresh();
+        Context.secureSettingsGranted = true;
+        android.provider.Settings.global.put("adb_enabled", "1");
+        win("com.whatsapp", "Main", view(tv("Chats")));
+        Sim.advance(3000);
+        eq("usb debugging: switched off, nothing closed", did() + android.provider.Settings.global.get("adb_enabled"), "0");
+        // With tamper protection off, Holdfast leaves all of it alone.
+        Rules rr3 = new Rules(svc);
+        rr3.requestRemoval(Rules.TYPE_GUARD, "");
+        Sim.advance(25L * 3600 * 1000);
+        rr3.tick();
+        android.provider.Settings.secure.put(LIST, "");
+        android.provider.Settings.global.put("adb_enabled", "1");
+        android.provider.Settings.writes.clear();
+        Repair.apply(svc, rr3);
+        new BootReceiver().onReceive(svc, new Intent());
+        svc.onUnbind(new Intent());
+        Sim.advance(500);
+        eq("protection off: nothing put back", android.provider.Settings.writes.toString(), "[]");
+        noError("self-repair");
+
+        // ---- Safe mode ----
+        fresh();
+        Rules sm = new Rules(svc);
+        eq("safe mode: allowed to begin with", sm.safeModeBlocked(), false);
+        sm.blockSafeMode();
+        Repair.apply(svc, sm);
+        eq("safe mode: the rule alone changes nothing without the permission", android.provider.Settings.global.get("safe_boot_disallowed"), null);
+        Context.secureSettingsGranted = true;
+        Repair.apply(svc, sm);
+        eq("safe mode: blocked", android.provider.Settings.global.get("safe_boot_disallowed"), "1");
+        sm.requestRemoval(Rules.TYPE_SAFEMODE, "");
+        Sim.advance(23L * 3600 * 1000);
+        sm.tick();
+        Repair.apply(svc, sm);
+        eq("safe mode: still blocked at 23 hours", android.provider.Settings.global.get("safe_boot_disallowed"), "1");
+        Sim.advance(2L * 3600 * 1000);
+        sm.tick();
+        Repair.apply(svc, sm);
+        eq("safe mode: allowed again after 24 hours", android.provider.Settings.global.get("safe_boot_disallowed"), "0");
+        sm.blockSafeMode();
+        Repair.apply(svc, sm);
+        eq("safe mode: blocked again at once", android.provider.Settings.global.get("safe_boot_disallowed"), "1");
+        // Kept in place after a restart.
+        android.provider.Settings.global.put("safe_boot_disallowed", "0");
+        new BootReceiver().onReceive(svc, new Intent());
+        eq("safe mode: put back after a restart", android.provider.Settings.global.get("safe_boot_disallowed"), "1");
+        // A broken Holdfast must not lock the phone in: after three crashes in a row it lets go.
+        sm.countCrash();
+        sm.countCrash();
+        Repair.apply(svc, sm);
+        eq("safe mode: two crashes change nothing", android.provider.Settings.global.get("safe_boot_disallowed"), "1");
+        sm.countCrash();
+        Repair.apply(svc, sm);
+        eq("safe mode: let through after three crashes", android.provider.Settings.global.get("safe_boot_disallowed"), "0");
+        sm.healthy();
+        Repair.apply(svc, sm);
+        eq("safe mode: blocked again once Holdfast works", android.provider.Settings.global.get("safe_boot_disallowed"), "1");
+        // Turning tamper protection off lets go of it too, so nothing is left behind.
+        sm.requestRemoval(Rules.TYPE_GUARD, "");
+        Sim.advance(25L * 3600 * 1000);
+        sm.tick();
+        Repair.apply(svc, sm);
+        eq("safe mode: allowed while tamper protection is off", android.provider.Settings.global.get("safe_boot_disallowed"), "0");
+        android.provider.Settings.writes.clear();
+        Repair.apply(svc, sm);
+        eq("safe mode: and not written again", android.provider.Settings.writes.toString(), "[]");
+        sm.guardOn();
+        Repair.apply(svc, sm);
+        eq("safe mode: blocked again with tamper protection", android.provider.Settings.global.get("safe_boot_disallowed"), "1");
+        // A phone that never chose the rule: its Safe mode switch is never touched.
+        fresh();
+        Context.secureSettingsGranted = true;
+        android.provider.Settings.writes.clear();
+        Repair.apply(svc, new Rules(svc));
+        new BootReceiver().onReceive(svc, new Intent());
+        eq("safe mode: untouched unless chosen", android.provider.Settings.global.get("safe_boot_disallowed"), null);
+        noError("safe mode");
 
         // ---- odds and ends ----
         fresh();

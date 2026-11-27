@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Only used to check GitHub for a newer build -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -9,6 +10,13 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <!-- Asks to be left out of battery saving, so Samsung can't put the blocker to sleep -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Self-repair (see Repair.java). Android only hands this out through a computer, once:
+         adb shell pm grant com.aaron.holdfast android.permission.WRITE_SECURE_SETTINGS -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <!-- Lets Holdfast put things back after every restart -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Lets the "Block an app" picker see installed apps on Android 11+ -->
     <queries>
@@ -75,6 +83,20 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_config" />
         </service>
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".RepairJob"
+            android:exported="true"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <receiver
             android:name=".AdminReceiver"

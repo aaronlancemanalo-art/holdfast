@@ -4,7 +4,11 @@ import java.util.*;
 public class Sim {
     public static long now = 10_000_000L;
     public static List<Object[]> timers = new ArrayList<>();
-    public static void reset() { now = 10_000_000L; timers.clear(); }
+    /** How many times the phone has started. */
+    public static int boot = 1;
+    public static void reset() { now = 10_000_000L; timers.clear(); boot = 1; }
+    /** The phone restarts: timers are gone, the uptime clock starts over, the count goes up. */
+    public static void restart() { timers.clear(); boot++; now = 30_000L; }
     public static void advance(long ms) {
         long end = now + ms;
         while (true) {

@@ -8,6 +8,10 @@ public abstract class Context {
     public android.app.admin.DevicePolicyManager dpm = new android.app.admin.DevicePolicyManager();
     public List<Intent> started = new ArrayList<>();
     public List<BroadcastReceiver> receivers = new ArrayList<>();
+    /** The permission only a computer can hand out (adb shell pm grant ...). */
+    public static boolean secureSettingsGranted = false;
+    public static android.app.job.JobScheduler jobs = new android.app.job.JobScheduler();
+    public int checkSelfPermission(String p) { return secureSettingsGranted ? 0 : -1; }
     public Context getApplicationContext() { return this; }
     public SharedPreferences getSharedPreferences(String name, int mode) { return prefs.computeIfAbsent(name, k -> new MemPrefs()); }
     public ContentResolver getContentResolver() { return new ContentResolver(); }
@@ -17,6 +21,7 @@ public abstract class Context {
     public Object getSystemService(String name) {
         if ("activity".equals(name)) return am;
         if ("device_policy".equals(name)) return dpm;
+        if ("jobscheduler".equals(name)) return jobs;
         return null;
     }
     public void startActivity(Intent i) { started.add(i); }

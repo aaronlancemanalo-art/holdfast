@@ -310,6 +310,22 @@ public class Checks {
         for (String h : notMangaSites) eq("not a manga site: " + h, Manga.isSite(h), false);
         eq("not a manga site: nothing", Manga.isSite(null), false);
 
+        // ---- Developer options are let through only when asked for (the laptop setup) ----
+        String[] devOptions = {"Developer options", "USB debugging", "Stay awake", "Running services"};
+        String[] usbPrompt = {"Allow USB debugging?", "USB debugging is intended for development purposes only.", "Cancel", "OK"};
+        eq("dev page: protected", kind(BlockerService.settingsPageRule(screen(devOptions), true, false, false, false)), "dev");
+        eq("dev page: let through for the setup", BlockerService.settingsPageRule(screen(devOptions), true, false, false, true), null);
+        eq("usb prompt: protected", kind(BlockerService.settingsPageRule(screen(usbPrompt), true, false, false, false)), "dev");
+        eq("usb prompt: let through for the setup", BlockerService.settingsPageRule(screen(usbPrompt), true, false, false, true), null);
+        eq("setup: holdfast's own page stays protected",
+                BlockerService.settingsPageRule(screen("Holdfast", "Force stop", "Uninstall"), true, false, false, true) != null, true);
+        eq("setup: reset stays protected",
+                kind(BlockerService.settingsPageRule(screen("Reset all settings", "Reset settings"), true, false, false, true)), "reset");
+        eq("setup: turn-off dialog stays protected",
+                BlockerService.settingsPageRule(screen("Turn off Holdfast?", "Cancel", "Turn off"), true, false, false, true) != null, true);
+        eq("setup: other language still strict",
+                BlockerService.settingsPageRule(screen("Holdfast", "Naka-on"), false, false, false, true) != null, true);
+
         // ---- manga: more readers by name ----
         String[][] moreReaders = {{"com.progdigy.cdisplay.free", "CDisplayEx"}, {"com.example.yac", "YACReader"},
                 {"com.example.kuro", "Kuro Reader"}, {"ani.dantotsu", "Dantotsu"}, {"com.example.suwa", "Suwayomi"}};

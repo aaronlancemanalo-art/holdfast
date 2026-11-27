@@ -180,6 +180,8 @@ public class BlockerService extends AccessibilityService {
             "com.sec.android.app.samsungapps")); // Galaxy Store
     private long lastBlockAt = 0;
     private String lastBlockReason = "";
+    /** When the laptop setup and USB debugging were last looked at (uptime ms). */
+    private long cableCheckedAt = 0;
 
     /** The app being closed, when that is decided by the app and not by the window in front. */
     private String blockSubject;
@@ -269,6 +271,13 @@ public class BlockerService extends AccessibilityService {
         super.onServiceConnected();
         rules = new Rules(this);
         instance = this;
+        try {
+            Repair.watchCrashes(this);
+            Repair.apply(this, rules);
+            RepairJob.schedule(this);
+        } catch (Throwable t) {
+            rules.recordError(t);
+        }
         handler.removeCallbacks(mangaLinksRefresh);
         handler.postDelayed(mangaLinksRefresh, 300);
         if (!appsChangedOn) {
@@ -295,6 +304,7 @@ public class BlockerService extends AccessibilityService {
     public boolean onUnbind(Intent intent) {
         instance = null;
         stopExtras();
+        comeBack();
         return super.onUnbind(intent);
     }
 
@@ -302,7 +312,29 @@ public class BlockerService extends AccessibilityService {
     public void onDestroy() {
         instance = null;
         stopExtras();
+        comeBack();
         super.onDestroy();
+    }
+
+    /**
+     * The service is being switched off. If that isn't Holdfast's own doing (tamper protection
+     * is still on) and self-repair is set up, it switches itself back on a moment later.
+     */
+    private void comeBack() {
+        try {
+            final Context app = getApplicationContext();
+            if (rules == null || !rules.isGuardOn() || !Repair.granted(app)) return;
+            new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Repair.apply(app, new Rules(app));
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }, 400);
+        } catch (Throwable ignored) {
+        }
     }
 
     private void stopExtras() {
@@ -357,6 +389,12 @@ public class BlockerService extends AccessibilityService {
             }
         }
 
+        long upNow = SystemClock.uptimeMillis();
+        if (upNow - cableCheckedAt > 1500) {
+            cableCheckedAt = upNow;
+            cableCheck();
+        }
+
         // 0. Riyal Ledger: the one app Holdfast installs itself. Trusted only under its own
         // package name AND when signed with Holdfast's key, so nothing else can pose as it.
         if (isTrustedOwnApp(pkg)) return;
@@ -369,6 +407,16 @@ public class BlockerService extends AccessibilityService {
         if (guardFamily && (windowChange || dueForScan(pkg, 150))) {
             root = getRootInActiveWindow();
             if (root != null && checkSensitiveScreen(root, false)) return;
+        }
+
+        // 0c. USB debugging belongs to the laptop setup window only. Left on outside it, where
+        // Holdfast can't switch it off itself, no added app opens until it is off. Settings
+        // stays reachable for that, the Developer options page is let through, and the apps
+        // that came with the phone (calls, messages, the clock) are left alone.
+        if (windowChange && !guardFamily && !NO_SCAN_PKGS.contains(pkg) && cableLeftOn()
+                && !isSystemApp(pkg)) {
+            block("USB debugging is on. Switch it off first: Settings > Developer options.");
+            return;
         }
 
         // 0b. Apps that aren't installed in the main profile (Secure Folder-only apps, instant
@@ -958,9 +1006,36 @@ public class BlockerService extends AccessibilityService {
 
     private static final String SLEEP_LISTS = "Sleeping-app lists are protected while tamper protection is on.";
 
+    /** True if USB debugging is on with no laptop window open and no way for Holdfast to switch it off. */
+    private boolean cableLeftOn() {
+        return rules.isGuardOn() && !rules.inLaptopWindow() && !Repair.granted(this)
+                && Repair.debuggingOn(this);
+    }
+
+    /**
+     * With self-repair set up: wraps up the laptop setup the moment the permission arrives,
+     * and keeps USB debugging off while tamper protection is on.
+     */
+    private void cableCheck() {
+        if (!rules.isGuardOn() || !Repair.granted(this)) return;
+        if (Repair.finishSetup(this, rules)) {
+            try {
+                Toast.makeText(this, "Self-repair is set up. Holdfast switched USB debugging off again.",
+                        Toast.LENGTH_LONG).show();
+            } catch (Throwable ignored) {
+            }
+        } else if (Repair.debuggingOn(this)) {
+            Repair.apply(this, rules);
+        }
+    }
+
     private String protectedSettingsPage(Screen s, boolean english) {
         long now = SystemClock.uptimeMillis();
-        String why = settingsPageRule(s, english, rules.inInstallPermissionWindow(), now < sleepListsUntil);
+        // Developer options are let through during the laptop setup, and whenever USB debugging
+        // is on, so that it can be switched off again.
+        boolean devPages = rules.inLaptopWindow() || Repair.debuggingOn(this);
+        String why = settingsPageRule(s, english, rules.inInstallPermissionWindow(), now < sleepListsUntil,
+                devPages);
         // Seeing one of the lists also covers the app picker that opens from it, for a short while.
         if (SLEEP_LISTS.equals(why) && s.has("sleeping apps")) sleepListsUntil = now + 90_000;
         return why;
@@ -975,6 +1050,12 @@ public class BlockerService extends AccessibilityService {
      * @param nearSleepLists a sleeping-app list was on screen a moment ago
      */
     static String settingsPageRule(Screen s, boolean english, boolean installWindow, boolean nearSleepLists) {
+        return settingsPageRule(s, english, installWindow, nearSleepLists, false);
+    }
+
+    /** @param devPages Developer options and its USB debugging prompts are allowed right now */
+    static String settingsPageRule(Screen s, boolean english, boolean installWindow, boolean nearSleepLists,
+                                   boolean devPages) {
         if (!english) {
             // Can't read the page: close anything in Settings that mentions Holdfast at all.
             return s.has(APP_NAME)
@@ -991,8 +1072,8 @@ public class BlockerService extends AccessibilityService {
                 && !s.has("clear data")
                 && !s.has("accessibility");
 
-        if (s.has("usb debugging") || s.has("wireless debugging")
-                || (s.exact("developer options") && s.hasAny(DEV_PAGE_ROWS))) {
+        if (!devPages && (s.has("usb debugging") || s.has("wireless debugging")
+                || (s.exact("developer options") && s.hasAny(DEV_PAGE_ROWS)))) {
             return "Developer options are protected while tamper protection is on.";
         }
         // The two reset pages (not the Reset menu, which also leads to the network reset).

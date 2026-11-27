@@ -81,6 +81,11 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         rules = new Rules(this);
+        try {
+            Repair.watchCrashes(this);
+            RepairJob.schedule(this);
+        } catch (Throwable ignored) {
+        }
         ScrollView sv = new ScrollView(this);
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -130,13 +135,61 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         rules.tick();
+        try {
+            // The laptop setup ends the moment the permission has arrived; after that, and on
+            // every later visit, put back whatever is not as the rules say.
+            if (Repair.finishSetup(this, rules)) {
+                Toast.makeText(this, "Self-repair is set up. Holdfast switched USB debugging off again.",
+                        Toast.LENGTH_LONG).show();
+            }
+            Repair.apply(this, rules);
+        } catch (Throwable t) {
+            rules.recordError(t);
+        }
         render();
         loadMangaApps();
         checkForUpdate(false);
         installIfReady();
     }
 
+    /**
+     * Draws the screen. If drawing it fails, a bare screen with the two things that get a
+     * broken build fixed takes its place: updating, and the 24-hour way out.
+     */
     private void render() {
+        try {
+            renderAll();
+            rules.healthy();
+        } catch (Throwable t) {
+            try {
+                rules.recordError(t);
+            } catch (Throwable ignored) {
+            }
+            renderRescue(t);
+        }
+    }
+
+    private void renderRescue(Throwable why) {
+        try {
+            root.removeAllViews();
+            root.addView(text("Holdfast", 30));
+            root.addView(text("This screen could not be drawn (" + why.getClass().getSimpleName()
+                    + "). Blocking carries on as before. Update to the newest build, and tell Claude.", 15));
+            root.addView(button("Check for an update", v -> checkForUpdate(true)));
+            if (remoteVersion > installedVersion()) {
+                root.addView(button("Download update (build " + remoteVersion + ")", v -> startDownload(false)));
+            }
+            if (rules.isGuardOn() && !rules.isPending(Rules.TYPE_GUARD, "")) {
+                root.addView(button("Turn off tamper protection (24h)", v -> {
+                    rules.requestRemoval(Rules.TYPE_GUARD, "");
+                    Toast.makeText(this, "Tamper protection goes off in 24 hours.", Toast.LENGTH_LONG).show();
+                }));
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void renderAll() {
         root.removeAllViews();
 
         TextView title = text("Holdfast", 30);
@@ -199,6 +252,48 @@ public class MainActivity extends Activity {
             }));
         } else {
             root.addView(text("Battery: always allowed to run", 16));
+        }
+
+        boolean repair = Repair.granted(this);
+        if (repair) {
+            root.addView(text("Self-repair: ON. If Holdfast is switched off, or the phone has been in Safe mode, "
+                    + "it switches itself back on. USB debugging is kept off.", 16));
+        } else {
+            TextView w = text("Self-repair: OFF. After Safe mode, Holdfast stays off until it is switched back "
+                    + "on by hand. Fixing that takes one command from a laptop, once.", 15);
+            w.setTextColor(0xFFFF6B6B);
+            root.addView(w);
+            if (rules.inLaptopWindow()) {
+                root.addView(text("The laptop window is open for another " + duration(rules.laptopWindowLeftMs())
+                        + ". Developer options are not blocked during it.\n"
+                        + "1. Settings > About phone > Software information: tap Build number 7 times.\n"
+                        + "2. Settings > Developer options: switch on USB debugging.\n"
+                        + "3. Plug the phone into the laptop and run the setup from the chat.\n"
+                        + "Holdfast closes the window and switches USB debugging off by itself once it has "
+                        + "worked.", 14));
+                root.addView(button("Close the window now", v -> {
+                    rules.closeLaptopWindow();
+                    render();
+                }));
+            } else if (rules.laptopReady()) {
+                root.addView(text("The laptop setup is ready. Open its window when you are at your laptop with "
+                        + "the cable: it stays open for " + (Rules.LAPTOP_WINDOW_MS / 60_000) + " minutes and "
+                        + "can be opened once.", 14));
+                root.addView(button("Open the laptop window now", v -> {
+                    rules.openLaptopWindow();
+                    render();
+                }));
+            } else if (rules.isPending(Rules.TYPE_LAPTOP, "")) {
+                root.addView(text("The laptop setup is on its way (see Waiting to apply).", 14));
+            } else {
+                root.addView(button("Start laptop setup (24h)", v -> confirmLaptopSetup()));
+            }
+            if (rules.isGuardOn() && !rules.inLaptopWindow() && Repair.debuggingOn(this)) {
+                TextView d = text("USB debugging is on. While it is, Holdfast closes every other app. "
+                        + "Switch it off: Settings > Developer options.", 15);
+                d.setTextColor(0xFFFF6B6B);
+                root.addView(d);
+            }
         }
 
         boolean english = true;
@@ -374,6 +469,24 @@ public class MainActivity extends Activity {
                 render();
             }));
         }
+        if (!repair) {
+            TextView sm = text("Safe mode: can't be blocked until self-repair is set up (see Setup).", 12);
+            sm.setAlpha(0.6f);
+            root.addView(sm);
+        } else if (rules.safeModeBlocked()) {
+            root.addView(text(rules.isGuardOn()
+                    ? "Safe mode: BLOCKED. The phone ignores the Safe mode key when it starts. If Holdfast ever "
+                            + "breaks, the way out is turning tamper protection off (24 hours) or a factory reset."
+                    : "Safe mode: blocked again as soon as tamper protection is back on.", 14));
+            if (!rules.isPending(Rules.TYPE_SAFEMODE, "")) {
+                root.addView(button("Allow Safe mode (24h)",
+                        v -> confirmRemoval(Rules.TYPE_SAFEMODE, "", "Safe mode")));
+            }
+        } else {
+            root.addView(text("Safe mode: allowed. Starting the phone in Safe mode switches every added app "
+                    + "off, Holdfast included.", 14));
+            root.addView(button("Block Safe mode now", v -> confirmBlockSafeMode()));
+        }
 
         // ----- pending -----
         List<Rules.Pending> pending = rules.getPending();
@@ -386,6 +499,9 @@ public class MainActivity extends Activity {
                     : Rules.TYPE_SIDELOAD.equals(p.type) ? "Allow installs from files"
                     : Rules.TYPE_MATURE.equals(p.type) ? "Allow mature content on Reddit"
                     : Rules.TYPE_MANGA.equals(p.type) ? "Allow manga apps and sites"
+                    : Rules.TYPE_LAPTOP.equals(p.type) ? "Laptop setup becomes ready"
+                    : Rules.TYPE_LAPTOP_READY.equals(p.type) ? "Laptop setup is ready (see Setup). Unused, it lapses"
+                    : Rules.TYPE_SAFEMODE.equals(p.type) ? "Allow Safe mode"
                     : "Unblock " + (Rules.TYPE_APP.equals(p.type) ? label(p.value) : p.value);
             final int idx = i;
             root.addView(row(what + "\nin " + duration(p.remainingMs), "Cancel", v -> {
@@ -418,8 +534,10 @@ public class MainActivity extends Activity {
         }
         root.addView(button("Check now", v -> checkForUpdate(true)));
 
-        TextView ver = text("\nSafe Mode or a factory reset can still get around this. "
-                + "That's the honest limit of any app.", 12);
+        TextView ver = text(repair && rules.safeModeBlocked() && rules.isGuardOn()
+                ? "\nA factory reset can still get around this. That's the honest limit of any app."
+                : "\nSafe Mode or a factory reset can still get around this. "
+                        + "That's the honest limit of any app.", 12);
         ver.setAlpha(0.5f);
         root.addView(ver);
     }
@@ -455,6 +573,41 @@ public class MainActivity extends Activity {
                     render();
                 })
                 .setNegativeButton("Never mind", null)
+                .show();
+    }
+
+    private void confirmLaptopSetup() {
+        new AlertDialog.Builder(this)
+                .setTitle("Start the laptop setup?")
+                .setMessage("In 24 hours the setup becomes ready, and stays ready for a day. When you are at "
+                        + "your laptop you open its window: for " + (Rules.LAPTOP_WINDOW_MS / 60_000)
+                        + " minutes Developer options are not blocked, so that one command can be sent "
+                        + "over the cable. Everything else stays protected.")
+                .setPositiveButton("Start the 24h wait", (d, w) -> {
+                    rules.requestRemoval(Rules.TYPE_LAPTOP, "");
+                    render();
+                })
+                .setNegativeButton("Never mind", null)
+                .show();
+    }
+
+    private void confirmBlockSafeMode() {
+        new AlertDialog.Builder(this)
+                .setTitle("Block Safe mode?")
+                .setMessage("The phone will ignore the Safe mode key when it starts, so Holdfast can't be "
+                        + "switched off that way. Safe mode is also the usual rescue when an app breaks the "
+                        + "phone. With it blocked, the way out is turning tamper protection off (24 hours) "
+                        + "or a factory reset. Allowing Safe mode again takes 24 hours.")
+                .setPositiveButton("Block it", (d, w) -> {
+                    rules.blockSafeMode();
+                    try {
+                        Repair.apply(this, rules);
+                    } catch (Throwable t) {
+                        rules.recordError(t);
+                    }
+                    render();
+                })
+                .setNegativeButton("Not now", null)
                 .show();
     }
 

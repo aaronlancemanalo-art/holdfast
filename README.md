@@ -57,9 +57,30 @@ Going home closes a full-screen app. It does not close a pop-up window, and an a
 
     ANDROID_JAR=/path/to/android-34/android.jar tools/sim/run.sh
 
+## Self-repair and Safe mode
+
+Starting the phone in Safe mode switches every added app off, and Android leaves Holdfast's accessibility switch off afterwards. No app can stop that by itself. With one permission that only a computer can hand out, Holdfast can:
+
+- switch itself back on after a restart, and straight away if it is switched off by hand while tamper protection is on;
+- keep USB debugging off while tamper protection is on;
+- block Safe mode itself. This is a separate rule, off until chosen. It sets the switch Android reads at startup before it looks at the Safe mode key. Stock Android honours that switch; whether a given phone does is checked by trying it once after turning the rule on.
+
+**The one-time setup** needs a computer with Android's platform-tools and a USB cable.
+
+1. In Holdfast, under Setup: **Start laptop setup (24h)**. When the wait is over the setup is ready, and stays ready for a day.
+2. At the computer: **Open the laptop window now**. For 60 minutes Developer options are not blocked. Everything else stays protected.
+3. On the phone: Settings > About phone > Software information, tap Build number 7 times. Then Settings > Developer options, switch on USB debugging.
+4. Connect the cable, allow the computer when the phone asks, and run:
+   `adb shell pm grant com.aaron.holdfast android.permission.WRITE_SECURE_SETTINGS`
+5. Holdfast notices, closes the window and switches USB debugging off again.
+
+USB debugging left on outside that window closes every added app until it is switched off (the Developer options page stays reachable for that).
+
+**If Safe mode is blocked and something goes wrong**, the ways out are, in order: turning tamper protection off in Holdfast (24 hours), which also lets Safe mode through again; three crashes of Holdfast in a row, after which Safe mode is let through by itself; a factory reset. If Holdfast is ever removed by other means while the block is on, the phone's switch stays set, and `adb shell settings put global safe_boot_disallowed 0` clears it.
+
 ## Known escape hatches
 
-Safe Mode (disables third-party apps), factory reset, ADB from a PC. It raises friction, it doesn't make bypass impossible.
+Safe Mode (unless it is blocked, see above), factory reset, ADB from a PC (USB debugging sits behind the 24-hour wait). It raises friction, it doesn't make bypass impossible.
 
 ## Riyal Ledger (separate app, installed by Holdfast)
 

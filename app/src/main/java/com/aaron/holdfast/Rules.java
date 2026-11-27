@@ -37,10 +37,22 @@ public final class Rules {
     public static final String TYPE_SIDELOAD = "sideload";
     public static final String TYPE_MATURE = "mature";
     public static final String TYPE_MANGA = "manga";
+    /** Waiting for this makes the laptop setup ready to be opened (see Repair). */
+    public static final String TYPE_LAPTOP = "laptop";
+    /** The laptop setup is ready: its window can be opened once, until this runs out unused. */
+    public static final String TYPE_LAPTOP_READY = "laptopReady";
+    /** Waiting for this lets the phone start in Safe mode again. */
+    public static final String TYPE_SAFEMODE = "safemode";
 
     private static final String PREFS = "rules";
     private static final long TICK_MIN_MS = 5000;
     private static final long SETUP_WINDOW_MS = 90 * 1000;
+    /** How long Developer options stay reachable for the one-time laptop setup. */
+    public static final long LAPTOP_WINDOW_MS = 60L * 60 * 1000;
+    /** How long the laptop setup stays ready to be opened once its wait is over. */
+    public static final long LAPTOP_READY_MS = 24L * 60 * 60 * 1000;
+    /** This many crashes of Holdfast in a row and Safe mode is let through again, as a way out. */
+    private static final int RESCUE_AFTER_CRASHES = 3;
 
     /** The official Reddit app. On the blocked list it stays blocked whether or not it is installed. */
     public static final String REDDIT_APP = "com.reddit.frontpage";
@@ -118,11 +130,25 @@ public final class Rules {
 
     /** Holdfast opens this right before showing the installer for its own update. */
     public void openSelfUpdateWindow() {
-        p.edit().putLong("selfUpdateUntil", SystemClock.elapsedRealtime() + 2 * 60 * 1000).apply();
+        openWindow("selfUpdateUntil", 2 * 60 * 1000);
     }
 
     public boolean inSelfUpdateWindow() {
-        return SystemClock.elapsedRealtime() < p.getLong("selfUpdateUntil", 0);
+        return inWindow("selfUpdateUntil");
+    }
+
+    /**
+     * A short opening in the rules, timed on the uptime clock. It belongs to the restart it was
+     * opened in: the uptime clock starts over when the phone restarts, so without that an old
+     * closing time would look far away and the window would stay open.
+     */
+    private void openWindow(String key, long ms) {
+        p.edit().putLong(key, SystemClock.elapsedRealtime() + ms).putInt(key + "Boot", bootCount()).apply();
+    }
+
+    private boolean inWindow(String key) {
+        return p.getInt(key + "Boot", Integer.MIN_VALUE) == bootCount()
+                && SystemClock.elapsedRealtime() < p.getLong(key, 0);
     }
 
     /** Blocks every installed browser, including ones installed later. */
@@ -338,6 +364,8 @@ public final class Rules {
         boolean sideload = sideloadBlocked();
         boolean mature = matureBlocked();
         boolean manga = mangaBlocked();
+        boolean safeMode = safeModeBlocked();
+        boolean laptopReady = false;
         JSONArray keep = new JSONArray();
 
         for (int i = 0; i < arr.length(); i++) {
@@ -354,12 +382,26 @@ public final class Rules {
                 else if (TYPE_SIDELOAD.equals(type)) sideload = false;
                 else if (TYPE_MATURE.equals(type)) mature = false;
                 else if (TYPE_MANGA.equals(type)) manga = false;
+                else if (TYPE_SAFEMODE.equals(type)) safeMode = false;
+                else if (TYPE_LAPTOP.equals(type)) laptopReady = true;
+                // TYPE_LAPTOP_READY running out: the setup was not opened in time, and lapses.
             } else {
                 try {
                     o.put("rem", rem);
                 } catch (JSONException ignored) {
                 }
                 keep.put(o);
+            }
+        }
+
+        if (laptopReady) {
+            try {
+                JSONObject ready = new JSONObject();
+                ready.put("type", TYPE_LAPTOP_READY);
+                ready.put("value", "");
+                ready.put("rem", LAPTOP_READY_MS);
+                keep.put(ready);
+            } catch (JSONException ignored) {
             }
         }
 
@@ -371,6 +413,7 @@ public final class Rules {
                 .putBoolean("noSideload", sideload)
                 .putBoolean("noMature", mature)
                 .putBoolean("noManga", manga)
+                .putBoolean("noSafeMode", safeMode)
                 .putString("pending", keep.toString());
         stampClock(e);
         e.apply();
@@ -384,11 +427,11 @@ public final class Rules {
      * window for that, and it only applies while the admin is NOT yet active.
      */
     public void openSetupWindow() {
-        p.edit().putLong("setupUntil", SystemClock.elapsedRealtime() + SETUP_WINDOW_MS).apply();
+        openWindow("setupUntil", SETUP_WINDOW_MS);
     }
 
     public boolean inSetupWindow() {
-        return SystemClock.elapsedRealtime() < p.getLong("setupUntil", 0);
+        return inWindow("setupUntil");
     }
 
     /**
@@ -396,11 +439,101 @@ public final class Rules {
      * This short window lets only that page through (the service also checks the page text).
      */
     public void openInstallPermissionWindow() {
-        p.edit().putLong("installUntil", SystemClock.elapsedRealtime() + SETUP_WINDOW_MS).apply();
+        openWindow("installUntil", SETUP_WINDOW_MS);
     }
 
     public boolean inInstallPermissionWindow() {
-        return SystemClock.elapsedRealtime() < p.getLong("installUntil", 0);
+        return inWindow("installUntil");
+    }
+
+    // ---------- self-repair: the one-time laptop setup, and Safe mode ----------
+
+    /**
+     * The laptop setup in three steps. Asking for it starts the usual 24-hour wait. When the
+     * wait is over the setup is "ready" for LAPTOP_READY_MS: its window can then be opened once,
+     * at a moment of his choosing (he has to be at the laptop). The window lets Developer
+     * options through for LAPTOP_WINDOW_MS and closes early once the setup is done.
+     */
+    public boolean laptopReady() {
+        return isPending(TYPE_LAPTOP_READY, "");
+    }
+
+    /** Opens the window if the setup is ready. Returns true if it did. */
+    public synchronized boolean openLaptopWindow() {
+        tick(true);
+        if (!laptopReady()) return false;
+        cancelPending(TYPE_LAPTOP_READY, "");
+        boolean devOn = false;
+        try {
+            devOn = Settings.Global.getInt(ctx.getContentResolver(),
+                    Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) != 0;
+        } catch (Throwable ignored) {
+        }
+        p.edit().putBoolean("laptopDevWasOn", devOn).apply();
+        openWindow("laptopUntil", LAPTOP_WINDOW_MS);
+        return true;
+    }
+
+    /** True while Developer options are let through for the laptop setup. */
+    public boolean inLaptopWindow() {
+        return inWindow("laptopUntil");
+    }
+
+    public long laptopWindowLeftMs() {
+        return inLaptopWindow() ? p.getLong("laptopUntil", 0) - SystemClock.elapsedRealtime() : 0;
+    }
+
+    /** Ends the laptop setup: the window closes, and a wait for it or a ready setup is dropped. */
+    public synchronized void closeLaptopWindow() {
+        p.edit().putLong("laptopUntil", 0).apply();
+        cancelPending(TYPE_LAPTOP, "");
+        cancelPending(TYPE_LAPTOP_READY, "");
+    }
+
+    /** True from asking for the laptop setup until it is done, given up or has lapsed. */
+    public boolean laptopSetupUnderWay() {
+        return inLaptopWindow() || laptopReady() || isPending(TYPE_LAPTOP, "");
+    }
+
+    /** Whether Developer options were already switched on when the laptop window opened. */
+    public boolean devOptionsWereOn() {
+        return p.getBoolean("laptopDevWasOn", false);
+    }
+
+    /** The phone ignores the Safe mode key at startup. Only takes effect with self-repair set up. */
+    public boolean safeModeBlocked() {
+        return p.getBoolean("noSafeMode", false);
+    }
+
+    public synchronized void blockSafeMode() {
+        p.edit().putBoolean("noSafeMode", true).apply();
+        cancelPending(TYPE_SAFEMODE, "");
+    }
+
+    /** Remembers whether Holdfast itself has set the phone's Safe mode switch, so it only undoes its own doing. */
+    public boolean safeModeSwitchSet() {
+        return p.getBoolean("safeSwitchSet", false);
+    }
+
+    public void noteSafeModeSwitch(boolean set) {
+        if (safeModeSwitchSet() != set) p.edit().putBoolean("safeSwitchSet", set).apply();
+    }
+
+    /**
+     * True after Holdfast has crashed several times in a row without once drawing its screen.
+     * Safe mode is then let through again, so a broken build can't lock the phone in.
+     */
+    public boolean rescue() {
+        return p.getInt("crashes", 0) >= RESCUE_AFTER_CRASHES;
+    }
+
+    public void countCrash() {
+        p.edit().putInt("crashes", p.getInt("crashes", 0) + 1).commit();
+    }
+
+    /** Holdfast drew its screen: whatever crashed before, it works now. */
+    public void healthy() {
+        if (p.getInt("crashes", 0) != 0) p.edit().putInt("crashes", 0).apply();
     }
 
     // ---------- stats ----------
